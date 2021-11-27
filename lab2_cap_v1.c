@@ -16,6 +16,8 @@
 #include <unistd.h>
 #include <time.h>
 
+#include "mpi.h"
+
 void perror_exit(const char *message)
 {
     perror(message);
@@ -117,6 +119,21 @@ int empty(unsigned char **univ, int width, int height)
 
 int similarity(unsigned char **univ, unsigned char **new_univ, int width, int height)
 {
+    int u[width], nu[width];
+    int numtasks, taskid;
+    
+    MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
+    MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
+
+
+    //scatter rows of first matrix to different processes     
+    MPI_Scatter(univ, width*height/numtasks, MPI_INT, u, width*height/numtasks, MPI_INT, 0, MPI_COMM_WORLD);
+
+    //scatter rows of second matrix to different processes     
+    MPI_Scatter(new_univ, width*height/numtasks, MPI_INT, nu, width*height/numtasks, MPI_INT, 0, MPI_COMM_WORLD);
+    
+    MPI_Barrier(MPI_COMM_WORLD);
+    
     // Check if the new generation is the same with the previous generation
     for (int y = 0; y < height; y++)
     {
@@ -126,6 +143,8 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
                 return false;
         }
     }
+    
+    MPI_Barrier(MPI_COMM_WORLD);
 
     return true;
 }
@@ -223,6 +242,8 @@ void game(int width, int height, char *fileArg)
 
 int main(int argc, char *argv[])
 {
+    MPI_Init(&argc, &argv);
+    
     int width = 0, height = 0;
 
     if (argc > 1)
@@ -241,5 +262,7 @@ int main(int argc, char *argv[])
     printf("Finished\n");
     fflush(stdout);
 
+    MPI_Finalize();
+    
     return 0;
 }
