@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include <time.h>
 
-#include "mpi.h"
+#include <mpi.h>
 
 void perror_exit(const char *message)
 {
@@ -104,6 +104,19 @@ void evolve(unsigned char **univ, unsigned char **new_univ, int width, int heigh
 
 int empty(unsigned char **univ, int width, int height)
 {
+    int numtasks, taskid;
+    unsigned char uu[width];
+    int u = 1;
+    int check = 1;
+    int result;
+    
+    MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
+    MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
+    
+    //scatter rows of first matrix to different processes     
+    MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, uu, width*height/numtasks, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    
+    /*
     // Checks if local is empty or not (a.k a. all the cells are dead)
     for (int y = 0; y < height; y++)
     {
@@ -113,26 +126,50 @@ int empty(unsigned char **univ, int width, int height)
                 return false;
         }
     }
-
     return true;
+    */
+    
+    MPI_Barrier(MPI_COMM_WORLD);    
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            //printf("%c", univ[y][x]);
+            if (univ[y][x] == '1')
+                check = 0;
+                break;
+        }
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+    MPI_Gather(&result, 1, MPI_INT, &result, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    
+    return result;
+    
 }
 
 int similarity(unsigned char **univ, unsigned char **new_univ, int width, int height)
 {
-    int u[width], nu[width];
+    /*
+    //int u[width], nu[width];
+    int u, nu;
     int numtasks, taskid;
     
     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
     MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
 
-
     //scatter rows of first matrix to different processes     
-    MPI_Scatter(univ, width*height/numtasks, MPI_INT, u, width*height/numtasks, MPI_INT, 0, MPI_COMM_WORLD);
-
+    MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &u, 1, MPI_INT, 0, MPI_COMM_WORLD);
     //scatter rows of second matrix to different processes     
-    MPI_Scatter(new_univ, width*height/numtasks, MPI_INT, nu, width*height/numtasks, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Scatter(new_univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &nu, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    
+    int *result = NULL;
+    if (taskid == 0) {
+        result = malloc(sizeof(int) * numtasks);
+    }
     
     MPI_Barrier(MPI_COMM_WORLD);
+    */
     
     // Check if the new generation is the same with the previous generation
     for (int y = 0; y < height; y++)
@@ -144,8 +181,29 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
         }
     }
     
+    
+    /*
+    int check = 1;
+    for (int y = 0; y < height; y++)
+    {
+        if(check) 
+        {
+            for (int x = 0; x < width; x++)
+            {
+                if (univ[y][x] != new_univ[y][x])
+                    check = 0;
+                    break;
+            }
+        }
+        else
+        {
+            break;
+        }
+    }
+    
     MPI_Barrier(MPI_COMM_WORLD);
-
+    MPI_Gather(&result, 1, MPI_INT, result, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    */
     return true;
 }
 
@@ -242,7 +300,7 @@ void game(int width, int height, char *fileArg)
 
 int main(int argc, char *argv[])
 {
-    MPI_Init(&argc, &argv);
+    MPI_Init(NULL, NULL);
     
     int width = 0, height = 0;
 
