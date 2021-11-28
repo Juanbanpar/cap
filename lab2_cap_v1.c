@@ -17,6 +17,7 @@
 #include <time.h>
 
 #include <mpi.h>
+#include <math.h>
 
 void perror_exit(const char *message)
 {
@@ -105,16 +106,59 @@ void evolve(unsigned char **univ, unsigned char **new_univ, int width, int heigh
 int empty(unsigned char **univ, int width, int height)
 {
     int numtasks, taskid;
-    unsigned char uu[width];
-    int u = 1;
+    //unsigned char uu[width];
+    //int u = 1;
     int check = 1;
-    int result;
+    //int result;
     
+    MPI_Init(NULL, NULL);
     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
     MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
     
+    int *sendcounts;    // array describing how many elements to send to each process
+    int *displs;        // array describing the displacements where each segment begins
+    
+    int rem = (width*height)%numtasks; // Elementos que quedan después de la división entre procesos
+    int sum = 0;                // Suma de cuentas. Se utiliza para calcular desplazamientos
+    unsigned char rec_buf[1000];          // buffer donde se deben almacenar los datos recibidos
+    
+    sendcounts = malloc(sizeof(int)*numtasks);
+    displs = malloc(sizeof(int)*numtasks);
+
+    // calculate send counts and displacements
+    for (int i = 0; i < numtasks; i++) {
+        sendcounts[i] = (width*height)/numtasks;
+        if (rem > 0) {
+            sendcounts[i]++;
+            rem--;
+        }
+
+        displs[i] = sum;
+        sum += sendcounts[i];
+    }
+    
+    /*
+    // imprimir los conteos y desplazamientos de envío calculados para cada proceso
+    if (0 == taskid) {
+        for (int i = 0; i < numtasks; i++) {
+            printf("sendcounts[%d] = %d\tdispls[%d] = %d\n", i, sendcounts[i], i, displs[i]);
+        }
+    }
+    */
+    
+    // divide the data among processes as described by sendcounts and displs
+    MPI_Scatterv(*univ, sendcounts, displs, MPI_UNSIGNED_CHAR, &rec_buf, 1000, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
     //scatter rows of first matrix to different processes     
-    MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, uu, width*height/numtasks, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    //MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, uu, width*height/numtasks, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
+    /*
+    // print what each process received
+    printf("%d: ", taskid);
+    for (int i = 0; i < sendcounts[taskid]; i++) {
+        printf("%c", rec_buf[i]);
+    }
+    printf("\n");
+    */
     
     /*
     // Checks if local is empty or not (a.k a. all the cells are dead)
@@ -129,6 +173,7 @@ int empty(unsigned char **univ, int width, int height)
     return true;
     */
     
+    
     MPI_Barrier(MPI_COMM_WORLD);    
     for (int y = 0; y < height; y++)
     {
@@ -142,34 +187,38 @@ int empty(unsigned char **univ, int width, int height)
     }
     MPI_Barrier(MPI_COMM_WORLD);
     
-    MPI_Gather(&result, 1, MPI_INT, &result, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    //MPI_Gather(&result, 1, MPI_INT, &result, 1, MPI_INT, 0, MPI_COMM_WORLD);
     
-    return result;
+    MPI_Finalize();
+    free(sendcounts);
+    free(displs);
+    
+    return true;
     
 }
 
 int similarity(unsigned char **univ, unsigned char **new_univ, int width, int height)
 {
+    
     /*
-    //int u[width], nu[width];
-    int u, nu;
-    int numtasks, taskid;
-    
-    MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
-    MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
-
-    //scatter rows of first matrix to different processes     
-    MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &u, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    //scatter rows of second matrix to different processes     
-    MPI_Scatter(new_univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &nu, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    
-    int *result = NULL;
-    if (taskid == 0) {
-        result = malloc(sizeof(int) * numtasks);
-    }
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-    */
+//     //int u[width], nu[width];
+//     int u, nu;
+//     int numtasks, taskid;
+//     
+//     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
+//     MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
+// 
+//     //scatter rows of first matrix to different processes     
+//     MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &u, 1, MPI_INT, 0, MPI_COMM_WORLD);
+//     //scatter rows of second matrix to different processes     
+//     MPI_Scatter(new_univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &nu, 1, MPI_INT, 0, MPI_COMM_WORLD);
+//     
+//     int *result = NULL;
+//     if (taskid == 0) {
+//         result = malloc(sizeof(int) * numtasks);
+//     }
+//     
+//     MPI_Barrier(MPI_COMM_WORLD);
     
     // Check if the new generation is the same with the previous generation
     for (int y = 0; y < height; y++)
@@ -182,28 +231,43 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
     }
     
     
-    /*
-    int check = 1;
+    
+//     int check = 1;
+//     for (int y = 0; y < height; y++)
+//     {
+//         if(check) 
+//         {
+//             for (int x = 0; x < width; x++)
+//             {
+//                 if (univ[y][x] != new_univ[y][x])
+//                     check = 0;
+//                     break;
+//             }
+//         }
+//         else
+//         {
+//             break;
+//         }
+//     }
+//     
+//     MPI_Barrier(MPI_COMM_WORLD);
+//     MPI_Gather(&result, 1, MPI_INT, result, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    
+    MPI_Finalize();
+    
+    return true;
+    */
+    
+    // Check if the new generation is the same with the previous generation
     for (int y = 0; y < height; y++)
     {
-        if(check) 
+        for (int x = 0; x < width; x++)
         {
-            for (int x = 0; x < width; x++)
-            {
-                if (univ[y][x] != new_univ[y][x])
-                    check = 0;
-                    break;
-            }
-        }
-        else
-        {
-            break;
+            if (univ[y][x] != new_univ[y][x])
+                return false;
         }
     }
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-    MPI_Gather(&result, 1, MPI_INT, result, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    */
+
     return true;
 }
 
@@ -300,8 +364,6 @@ void game(int width, int height, char *fileArg)
 
 int main(int argc, char *argv[])
 {
-    MPI_Init(NULL, NULL);
-    
     int width = 0, height = 0;
 
     if (argc > 1)
@@ -319,8 +381,6 @@ int main(int argc, char *argv[])
 
     printf("Finished\n");
     fflush(stdout);
-
-    MPI_Finalize();
     
     return 0;
 }
