@@ -16,16 +16,24 @@
 #include <unistd.h>
 #include <time.h>
 
+//Includes necesarios para OpenMP y MPI
+#include <omp.h>
 #include <mpi.h>
-#include <math.h>
 
+//Variables globales para guardar las porciones enviadas
+int local_nrow;
+unsigned char** local_univ;
+unsigned char** local_new_univ;
+
+//Función inalterada
 void perror_exit(const char *message)
 {
     perror(message);
     exit(EXIT_FAILURE);
 }
 
-void print_to_file(unsigned char **univ, int width, int height)
+//Función inalterada
+void print_to_file(unsigned char *univ, int width, int height)
 {
     FILE *fout = fopen("./game_output.out", "w"); // printing the result to a file with
                                                   // 1 or 0 (1 being an alive cell and 0 a dead cell)
@@ -33,7 +41,7 @@ void print_to_file(unsigned char **univ, int width, int height)
     {
         for (int j = 0; j < width; j++)
         {
-            fprintf(fout, "%c", univ[i][j]);
+            fprintf(fout, "%c", univ[i*width+j]);
         }
         fprintf(fout, "\n");
     }
@@ -42,6 +50,7 @@ void print_to_file(unsigned char **univ, int width, int height)
     fclose(fout);
 }
 
+//Función inalterada
 void show(unsigned char **univ, int width, int height)
 {
     // Prints the result in stdout, using various VT100 escape codes
@@ -60,16 +69,60 @@ void show(unsigned char **univ, int width, int height)
     fflush(stdout);
 }
 
-void evolve(unsigned char **univ, unsigned char **new_univ, int width, int height)
+//Añadido un parámetro para comprobar o no los vecinos que no se tiene localmente
+void evolve(unsigned char **univ, unsigned char **new_univ, int width, int height, int check_neigh)
 {
-    // Generate new generation: keep it in new_univ
-    for (int y = 0; y < height; y++)
-    {
+    if(!check_neigh) {  //Para calcular la evolución de las filas de las que se tienen sus vecinos localmente
+        // Generate new generation: keep it in new_univ
+        #pragma omp parallel for schedule(static)
+        for (int y = 2; y < height-2; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int neighbors = 0;
+
+                for (int y1 = y - 1; y1 <= y + 1; y1++)
+                {
+                    for (int x1 = x - 1; x1 <= x + 1; x1++)
+                    {
+                        int x2 = x1, y2 = y1;
+                        if (x1 == -1)
+                            x2 = width - 1;
+                        if (y1 == -1)
+                            y2 = height - 1;
+                        if (x1 == width)
+                            x2 = 0;
+                        if (y1 == height)
+                            y2 = 0;
+
+                        if (univ[y2][x2] == '1')
+                            neighbors++;
+                    }
+                }
+
+                if (univ[y][x] == '1')
+                    neighbors--;
+
+                if (neighbors == 3 || (neighbors == 2 && (univ[y][x] == '1')))
+                {
+                    new_univ[y][x] = '1';
+                }
+                else
+                {
+                    new_univ[y][x] = '0';
+                }
+            }
+        }
+        
+    } else {    //Para la primera y última fila almacenadas en cada proceso es necesario obtener información de los vecinos.
+        
+        //Primera fila local
+        #pragma omp parallel for schedule(static)
         for (int x = 0; x < width; x++)
         {
             int neighbors = 0;
 
-            for (int y1 = y - 1; y1 <= y + 1; y1++)
+            for (int y1 = 1 - 1; y1 <= 1 + 1; y1++)
             {
                 for (int x1 = x - 1; x1 <= x + 1; x1++)
                 {
@@ -88,16 +141,54 @@ void evolve(unsigned char **univ, unsigned char **new_univ, int width, int heigh
                 }
             }
 
-            if (univ[y][x] == '1')
+            if (univ[1][x] == '1')
                 neighbors--;
 
-            if (neighbors == 3 || (neighbors == 2 && (univ[y][x] == '1')))
+            if (neighbors == 3 || (neighbors == 2 && (univ[1][x] == '1')))
             {
-                new_univ[y][x] = '1';
+                new_univ[1][x] = '1';
             }
             else
             {
-                new_univ[y][x] = '0';
+                new_univ[1][x] = '0';
+            }
+        }
+        
+        //Última fila local
+        #pragma omp parallel for schedule(static)
+        for (int x = 0; x < width; x++)
+        {
+            int neighbors = 0;
+
+            for (int y1 = (height-2) - 1; y1 <= (height-2) + 1; y1++)
+            {
+                for (int x1 = x - 1; x1 <= x + 1; x1++)
+                {
+                    int x2 = x1, y2 = y1;
+                    if (x1 == -1)
+                        x2 = width - 1;
+                    if (y1 == -1)
+                        y2 = height - 1;
+                    if (x1 == width)
+                        x2 = 0;
+                    if (y1 == height)
+                        y2 = 0;
+
+                    if (univ[y2][x2] == '1')
+                        neighbors++;
+                }
+            }
+
+            if (univ[height-2][x] == '1')
+                neighbors--;
+
+            if (neighbors == 3 || (neighbors == 2 && (univ[height-2][x] == '1')))
+            {
+                new_univ[height-2][x] = '1';
+            }
+            else
+            {
+                new_univ[height-2][x] = '0';
             }
         }
     }
@@ -105,271 +196,276 @@ void evolve(unsigned char **univ, unsigned char **new_univ, int width, int heigh
 
 int empty(unsigned char **univ, int width, int height)
 {
-    int numtasks, taskid;
-    //unsigned char uu[width];
-    //int u = 1;
-    int check = 1;
-    //int result;
-    
-    MPI_Init(NULL, NULL);
-    MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
-    MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
-    
-    int *sendcounts;    // array describing how many elements to send to each process
-    int *displs;        // array describing the displacements where each segment begins
-    
-    int rem = (width*height)%numtasks; // Elementos que quedan después de la división entre procesos
-    int sum = 0;                // Suma de cuentas. Se utiliza para calcular desplazamientos
-    unsigned char rec_buf[1000];          // buffer donde se deben almacenar los datos recibidos
-    
-    sendcounts = malloc(sizeof(int)*numtasks);
-    displs = malloc(sizeof(int)*numtasks);
-
-    // calculate send counts and displacements
-    for (int i = 0; i < numtasks; i++) {
-        sendcounts[i] = (width*height)/numtasks;
-        if (rem > 0) {
-            sendcounts[i]++;
-            rem--;
-        }
-
-        displs[i] = sum;
-        sum += sendcounts[i];
-    }
-    
-    /*
-    // imprimir los conteos y desplazamientos de envío calculados para cada proceso
-    if (0 == taskid) {
-        for (int i = 0; i < numtasks; i++) {
-            printf("sendcounts[%d] = %d\tdispls[%d] = %d\n", i, sendcounts[i], i, displs[i]);
-        }
-    }
-    */
-    
-    // divide the data among processes as described by sendcounts and displs
-    MPI_Scatterv(*univ, sendcounts, displs, MPI_UNSIGNED_CHAR, &rec_buf, 1000, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
-    //scatter rows of first matrix to different processes     
-    //MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, uu, width*height/numtasks, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
-
-    /*
-    // print what each process received
-    printf("%d: ", taskid);
-    for (int i = 0; i < sendcounts[taskid]; i++) {
-        printf("%c", rec_buf[i]);
-    }
-    printf("\n");
-    */
-    
-    /*
-    // Checks if local is empty or not (a.k a. all the cells are dead)
-    for (int y = 0; y < height; y++)
+    // Checks if local is empty or not (a.k a. all the cells are dead)    
+    int check = 0;
+    #pragma omp for schedule(static)
+    for (int y = 1; y < height-1; y++)
     {
         for (int x = 0; x < width; x++)
         {
             if (univ[y][x] == '1')
-                return false;
+                check = 1;
         }
     }
-    return true;
-    */
     
-    
-    MPI_Barrier(MPI_COMM_WORLD);    
-    for (int y = 0; y < height; y++)
-    {
-        for (int x = 0; x < width; x++)
-        {
-            //printf("%c", univ[y][x]);
-            if (univ[y][x] == '1')
-                check = 0;
-                break;
-        }
+    int result;
+    MPI_Allreduce(&check, &result, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+    if(result == 0){
+        return true;
     }
-    MPI_Barrier(MPI_COMM_WORLD);
-    
-    //MPI_Gather(&result, 1, MPI_INT, &result, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    
-    MPI_Finalize();
-    free(sendcounts);
-    free(displs);
-    
-    return true;
-    
+    return false;
 }
 
 int similarity(unsigned char **univ, unsigned char **new_univ, int width, int height)
 {
-    
-    /*
-//     //int u[width], nu[width];
-//     int u, nu;
-//     int numtasks, taskid;
-//     
-//     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
-//     MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
-// 
-//     //scatter rows of first matrix to different processes     
-//     MPI_Scatter(univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &u, 1, MPI_INT, 0, MPI_COMM_WORLD);
-//     //scatter rows of second matrix to different processes     
-//     MPI_Scatter(new_univ, width*height/numtasks, MPI_UNSIGNED_CHAR, &nu, 1, MPI_INT, 0, MPI_COMM_WORLD);
-//     
-//     int *result = NULL;
-//     if (taskid == 0) {
-//         result = malloc(sizeof(int) * numtasks);
-//     }
-//     
-//     MPI_Barrier(MPI_COMM_WORLD);
-    
     // Check if the new generation is the same with the previous generation
-    for (int y = 0; y < height; y++)
+    int check = 0;
+    #pragma omp for schedule(static)
+    for (int y = 1; y < height-1; y++)
     {
         for (int x = 0; x < width; x++)
         {
             if (univ[y][x] != new_univ[y][x])
-                return false;
+                check = 1;
         }
     }
     
-    
-    
-//     int check = 1;
-//     for (int y = 0; y < height; y++)
-//     {
-//         if(check) 
-//         {
-//             for (int x = 0; x < width; x++)
-//             {
-//                 if (univ[y][x] != new_univ[y][x])
-//                     check = 0;
-//                     break;
-//             }
-//         }
-//         else
-//         {
-//             break;
-//         }
-//     }
-//     
-//     MPI_Barrier(MPI_COMM_WORLD);
-//     MPI_Gather(&result, 1, MPI_INT, result, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    
-    MPI_Finalize();
-    
-    return true;
-    */
-    
-    // Check if the new generation is the same with the previous generation
-    for (int y = 0; y < height; y++)
-    {
-        for (int x = 0; x < width; x++)
-        {
-            if (univ[y][x] != new_univ[y][x])
-                return false;
-        }
-    }
+    int result;
+    MPI_Allreduce(&check, &result, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
-    return true;
+    if(result == 0){
+        return true;
+    }
+    return false;
+
 }
 
 void game(int width, int height, char *fileArg)
 {
-    // Allocate space for the two game arrays (one for current generation, the other for the new one)
-    unsigned char **univ = malloc(height * sizeof(unsigned char *)),
-                  **new_univ = malloc(height * sizeof(unsigned char *));
-    if (univ == NULL || new_univ == NULL)
-        perror_exit("malloc: ");
+    int size, rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    int *nrows_proc;    //Númeo de filas que se envía a cada proceso
+    int *nelem_proc;    //Número de elementos por proceso
+    int *offset;        //Sobrante de la división
 
-    for (int i = 0; i < height; i++)
-    {
-        univ[i] = malloc(width * sizeof(unsigned char));
-        new_univ[i] = malloc(width * sizeof(unsigned char));
-        if (univ[i] == NULL || new_univ[i] == NULL)
-            perror_exit("malloc: ");
-    }
-
-    FILE *filePtr = fopen(fileArg, "r");
-    if (filePtr == NULL)
-        perror_exit("fopen: ");
-
-    // Populate univ with its contents
-    for (int y = 0; y < height; y++)
-    {
-        for (int x = 0; x < width;)
-        {
-            char c = fgetc(filePtr);
-            if ((c != EOF) && (c != '\n'))
-            {
-                univ[y][x] = c;
-                x++;
+    if(rank == 0) {
+        nrows_proc = (int*)malloc(size*sizeof(int));
+        nelem_proc = (int*)malloc(size*sizeof(int));
+        
+        //Se calcula el número de filas por proceso equitativamente
+        for(int i = 0; i < size; i++){
+            nrows_proc[i] = height/size;
+        }
+        //El resto se reparte entre todos los procesos empezando por el primero
+        for(int i = 0; i < height%size; i++) {
+            nrows_proc[i]++;
+        }
+        
+        //Se calcula cuantas posiciones tiene cada proceso 
+        for(int i = 0; i < size; i++) {
+            nelem_proc[i] = nrows_proc[i] * width;
+        }
+        //Calcular los offset para cada proceso para luego hacer el envío
+        offset = (int*)malloc(size*sizeof(int));
+        for(int i = 0; i < size; i++) {
+            if(i == 0) {
+                offset[i] = 0;
+            } else {
+                offset[i] = offset[i-1] + nelem_proc[i-1];
             }
         }
     }
-    fclose(filePtr);
-    filePtr = NULL;
+    
+    /*
+     * La estructura de los datos localmente en cada proceso será la siguiente:
+     * cada proceso tendrá un número de filas nrows_proc a recibir y a mayores
+     * tendrá una fila encima y debajo (en caso de ser necesario) para trabajar
+     * con los vecinos que le llegan de otros procesos. El ancho será el mismo
+     * para todos pues se distribuye por filas, no columnas.
+     * Ejemplo:
+     * 
+     * 0000000000
+     * nrows_proc
+     * .
+     * .
+     * .
+     * 0000000000
+     * 
+     */
 
+    //Cada proceso recibe el número de columnas asignado
+    MPI_Scatter(nrows_proc, 1, MPI_INT, &local_nrow, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Allocate space for the two game arrays (one for current generation, the other for the new one)
+    unsigned char *univ = malloc(width * height * sizeof(unsigned char)),
+                  *aux_univ = malloc((2+local_nrow)*width*sizeof(unsigned char));
+    if (univ == NULL)
+        perror_exit("malloc: ");
+
+    //El proceso principal lee el fichero como el programa original
+    if(rank == 0){
+        //Inalterado
+        FILE *filePtr = fopen(fileArg, "r");
+        if (filePtr == NULL)
+            perror_exit("fopen: ");
+
+        // Populate univ with its contents
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width;)
+            {
+                char c = fgetc(filePtr);
+                if ((c != EOF) && (c != '\n'))
+                {
+                    univ[y*width+x] = c;
+                    x++;
+                }
+            }
+        }
+        fclose(filePtr);
+        filePtr = NULL;
+    }
+
+    //Se envían los datos leídos teniendo en cuenta el offset y dejando la primera fila libre
+    MPI_Scatterv(univ, nelem_proc, offset, MPI_UNSIGNED_CHAR, aux_univ+width, local_nrow*width, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    free(univ);
+
+    //Para facilitar el tratamiento y reutilizar la algoritmia se tranforman los datos recibidos a forma matricial
+    local_univ = malloc((2+local_nrow)*sizeof(unsigned char*));
+    local_new_univ = malloc((2+local_nrow)*sizeof(unsigned char*));
+    for(int i = 0; i < local_nrow+2; i++){
+        local_univ[i] = &(aux_univ[width*i]);
+        local_new_univ[i] = malloc(width*sizeof(unsigned char));
+        if (local_univ[i] == NULL || local_new_univ[i] == NULL)
+            perror_exit("malloc: ");
+    }
+
+    //Se definen los vecinos de cada proceso
+    int up_neigh = rank - 1;
+    if(up_neigh < 0){
+        up_neigh = size - 1;
+    }
+    int down_neigh = rank + 1;
+    if(down_neigh >= size){
+        down_neigh = 0;
+    }
+
+    //Inalterado
     int generation = 1;
 #ifdef CHECK_SIMILARITY
     int counter = 0;
 #endif
+    
+    MPI_Request requests[4];    //Peticiones que cada proceso, recibe 2 filas y envía otras tantas
+    MPI_Status statuses[4];       //Estado de cada petición
+    
+    double local_tstart, local_tfinish, local_TotalTime, result_time;   //Tiempos de inicio, fin y diferencia para cada proceso y el tiempo final
+    MPI_Barrier(MPI_COMM_WORLD);                                        //Sincronizamos antes de comenzar a contar
+    local_tstart = MPI_Wtime();                                         //Comienza el timer de MPI
 
-    // Get currect timestamp: calculations are about to start
-    clock_t t_start = clock();
-
-    while ((!empty(univ, width, height)) && (generation <= GEN_LIMIT))
+    while ((!empty(local_univ, width, local_nrow+2)) && (generation <= GEN_LIMIT))
     {
-        evolve(univ, new_univ, width, height);
+        //Se envían las dos filas que requieren los vecinos
+        MPI_Send_init(&(local_univ[1][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 123, MPI_COMM_WORLD, &requests[0]);
+        MPI_Send_init(&(local_univ[local_nrow][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 123, MPI_COMM_WORLD, &requests[1]);
 
+        //Se reciben las filas requeridas de los vecinos
+        MPI_Recv_init(&(local_univ[0][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 123, MPI_COMM_WORLD, &requests[2]);
+        MPI_Recv_init(&(local_univ[local_nrow+1][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 123, MPI_COMM_WORLD, &requests[3]);
+
+        MPI_Startall(4, requests); //Se ejecutan todas las peticiones
+
+        //Si se tienen suficientes filas localmente se puede calcular parte de la evolución
+        if(local_nrow >= 3){
+            evolve(local_univ, local_new_univ, width, local_nrow+2, false);
+        }
+
+        //Por último se calcula la evolución de la primera y última fila que se reciben de los vecinos
+        MPI_Waitall(4, requests, statuses);                             //Se espera a que se completen las peticioens
+        evolve(local_univ, local_new_univ, width, local_nrow+2, true);  //Se evolucionan las filas recibidas
+
+//Código original adaptado a los datos locales
 #ifdef CHECK_SIMILARITY
         counter++;
         if (counter == SIMILARITY_FREQUENCY)
         {
-            if (similarity(univ, new_univ, width, height))
+            if (similarity(local_univ, local_new_univ, width, local_nrow+2))
                 break;
             counter = 0;
         }
 #endif
 
-        unsigned char **temp_univ = univ;
-        univ = new_univ;
-        new_univ = temp_univ;
-
+        //Código original adaptado a los datos locales
+        unsigned char **local_temp_univ = local_univ;
+        local_univ = local_new_univ;
+        local_new_univ = local_temp_univ;
+        
         generation++;
     }
-
-    // Get the total duration of the loop above in milliseconds
-    double msecs = ((float)clock() - t_start) / CLOCKS_PER_SEC * 1000.0f;
-
-    printf("Finished.\n\n");
-    printf("Generations:\t%d\n", generation - 1);
-    printf("Execution time:\t%.2f msecs\n", msecs);
-
-    // show (univ, width, height);
-    print_to_file(univ, width, height);
-
-    // Free allocated memory
-    for (int i = 0; i < height; i++)
-    {
-        free(univ[i]);
-        free(new_univ[i]);
-
-        univ[i] = NULL;
-        new_univ[i] = NULL;
+    
+    /*
+     * Finalizado el bucle se procede a recuperar los datos calculados,
+     * reestructurarlos en una matriz y escribirlos a fichero.
+     */
+    
+    //Se recolectan las submatrices en un array
+    unsigned char *local_result_univ = malloc(width*local_nrow*sizeof(unsigned char));
+    for (int i = 0; i < local_nrow; i++){
+        for (int j = 0; j < width; j++){
+            local_result_univ[i*width+j] = local_univ[i+1][j];
+        }
     }
-    free(univ);
-    free(new_univ);
 
-    univ = NULL;
-    new_univ = NULL;
+    //La tarea root crea una matriz donde recibir las de todos los procesos
+    unsigned char *result_univ;
+    if (rank == 0) {
+        result_univ = malloc((height*width)*sizeof(unsigned char));
+    }
+    //Se reciben las porciones de cada proceso
+    MPI_Gatherv(local_result_univ, local_nrow*width, MPI_UNSIGNED_CHAR, result_univ, nelem_proc, offset, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    free(local_result_univ);
+    
+    //Se sincronizan los procesos y se calcula el tiempo de ejecución para cada uno
+    MPI_Barrier(MPI_COMM_WORLD);
+    local_tfinish = MPI_Wtime();
+    local_TotalTime = local_tfinish - local_tstart;
+    
+    //Se elige el tiempo máximo de todos los proceso ejecutados
+    MPI_Reduce(&local_TotalTime, &result_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+    //La tarea principal imprime los mismos datos que el código original
+    if (rank == 0){
+        printf("Finished.\n\n");
+        printf("Generations:\t%d\n", generation - 1);
+        //Se cambia el tiempo por el de MPI
+        printf("Execution time:\t%e secs\n", result_time);
+    }
+    
+    //Se escribe al fichero de salida
+    if(rank == 0) {
+        // show (univ, width, height);
+        print_to_file(result_univ, width, height);
+        free(result_univ);
+    }
 }
 
 int main(int argc, char *argv[])
 {
     int width = 0, height = 0;
 
+    //Inicializar MPI
+    MPI_Init(&argc, &argv);
+    //Iniciar controlador de errores
+    MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_RETURN);
+
+    //Inalterado
     if (argc > 1)
-        height = atoi(argv[1]);
+        width = atoi(argv[1]);
     if (argc > 2)
-        width = atoi(argv[2]);
+        height = atoi(argv[2]);
 
     if (width <= 0)
         width = 30;
@@ -379,8 +475,15 @@ int main(int argc, char *argv[])
     if (argc > 3)
         game(width, height, argv[3]);
 
-    printf("Finished\n");
+    //Se indica cuando termina cada proceso
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Barrier(MPI_COMM_WORLD);
+    printf("Finished on %d process\n", rank);
     fflush(stdout);
+
+    //Finalmente se para MPI
+    MPI_Finalize();
     
     return 0;
 }
