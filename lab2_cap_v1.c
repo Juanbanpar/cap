@@ -198,7 +198,7 @@ int empty(unsigned char **univ, int width, int height)
 {
     // Checks if local is empty or not (a.k a. all the cells are dead)    
     int check = 0;
-    #pragma omp for schedule(static)
+    #pragma omp parallel for shared(check, univ) schedule(static)
     for (int y = 1; y < height-1; y++)
     {
         for (int x = 0; x < width; x++)
@@ -221,7 +221,7 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
 {
     // Check if the new generation is the same with the previous generation
     int check = 0;
-    #pragma omp for schedule(static)
+    #pragma omp parallel for shared(check, univ, new_univ) schedule(static)
     for (int y = 1; y < height-1; y++)
     {
         for (int x = 0; x < width; x++)
@@ -307,6 +307,8 @@ void game(int width, int height, char *fileArg)
 
     //El proceso principal lee el fichero como el programa original
     if(rank == 0){
+        clock_t t_start = clock();
+        
         //Inalterado
         FILE *filePtr = fopen(fileArg, "r");
         if (filePtr == NULL)
@@ -327,6 +329,9 @@ void game(int width, int height, char *fileArg)
         }
         fclose(filePtr);
         filePtr = NULL;
+        
+        double msecs = ((float)clock() - t_start) / CLOCKS_PER_SEC * 1000.0f;
+        printf("File reading time:\t%.2f msecs\n", msecs);
     }
 
     //Se envían los datos leídos teniendo en cuenta el offset y dejando la primera fila libre
@@ -369,12 +374,12 @@ void game(int width, int height, char *fileArg)
     while ((!empty(local_univ, width, local_nrow+2)) && (generation <= GEN_LIMIT))
     {
         //Se envían las dos filas que requieren los vecinos
-        MPI_Send_init(&(local_univ[1][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 123, MPI_COMM_WORLD, &requests[0]);
-        MPI_Send_init(&(local_univ[local_nrow][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 123, MPI_COMM_WORLD, &requests[1]);
+        MPI_Send_init(&(local_univ[1][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD, &requests[0]);
+        MPI_Send_init(&(local_univ[local_nrow][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD, &requests[1]);
 
         //Se reciben las filas requeridas de los vecinos
-        MPI_Recv_init(&(local_univ[0][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 123, MPI_COMM_WORLD, &requests[2]);
-        MPI_Recv_init(&(local_univ[local_nrow+1][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 123, MPI_COMM_WORLD, &requests[3]);
+        MPI_Recv_init(&(local_univ[0][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD, &requests[2]);
+        MPI_Recv_init(&(local_univ[local_nrow+1][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD, &requests[3]);
 
         MPI_Startall(4, requests); //Se ejecutan todas las peticiones
 
@@ -435,13 +440,15 @@ void game(int width, int height, char *fileArg)
     
     //Se elige el tiempo máximo de todos los proceso ejecutados
     MPI_Reduce(&local_TotalTime, &result_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    double result_time_msecs = result_time * 1000.0f;
 
     //La tarea principal imprime los mismos datos que el código original
     if (rank == 0){
         printf("Finished.\n\n");
         printf("Generations:\t%d\n", generation - 1);
         //Se cambia el tiempo por el de MPI
-        printf("Execution time:\t%e secs\n", result_time);
+        //printf("Execution time:\t%e msecs\n", result_time);
+        printf("Execution time:\t%.2f msecs\n", result_time_msecs);
     }
     
     //Se escribe al fichero de salida
