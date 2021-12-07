@@ -463,9 +463,9 @@ int main(int argc, char *argv[])
 
     //Inalterado
     if (argc > 1)
-        width = atoi(argv[1]);
+        height = atoi(argv[1]);
     if (argc > 2)
-        height = atoi(argv[2]);
+        width = atoi(argv[2]);
 
     if (width <= 0)
         width = 30;
