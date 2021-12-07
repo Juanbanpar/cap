@@ -3,7 +3,7 @@
 
 #define _DEFAULT_SOURCE
 
-#define GEN_LIMIT 1000
+#define GEN_LIMIT 0
 
 #define CHECK_SIMILARITY
 #define SIMILARITY_FREQUENCY 3
@@ -19,11 +19,6 @@
 //Includes necesarios para OpenMP y MPI
 #include <omp.h>
 #include <mpi.h>
-
-//Variables globales para guardar las porciones enviadas
-int local_nrow;
-unsigned char** local_univ;
-unsigned char** local_new_univ;
 
 //Función inalterada
 void perror_exit(const char *message)
@@ -296,7 +291,8 @@ void game(int width, int height, char *fileArg)
      * 
      */
 
-    //Cada proceso recibe el número de columnas asignado
+    //Cada proceso recibe el número de filas asignado
+    int local_nrow;
     MPI_Scatter(nrows_proc, 1, MPI_INT, &local_nrow, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     // Allocate space for the two game arrays (one for current generation, the other for the new one)
@@ -339,8 +335,8 @@ void game(int width, int height, char *fileArg)
     free(univ);
 
     //Para facilitar el tratamiento y reutilizar la algoritmia se tranforman los datos recibidos a forma matricial
-    local_univ = malloc((2+local_nrow)*sizeof(unsigned char*));
-    local_new_univ = malloc((2+local_nrow)*sizeof(unsigned char*));
+    unsigned char** local_univ = malloc((2+local_nrow)*sizeof(unsigned char*));         //Universo actual local
+    unsigned char** local_new_univ = malloc((2+local_nrow)*sizeof(unsigned char*));     //Universo evolcionado local
     for(int i = 0; i < local_nrow+2; i++){
         local_univ[i] = &(aux_univ[width*i]);
         local_new_univ[i] = malloc(width*sizeof(unsigned char));
@@ -364,8 +360,8 @@ void game(int width, int height, char *fileArg)
     int counter = 0;
 #endif
     
-    MPI_Request requests[4];    //Peticiones que cada proceso, recibe 2 filas y envía otras tantas
-    MPI_Status statuses[4];       //Estado de cada petición
+    MPI_Request requests[4];        //Peticiones que cada proceso, recibe 2 filas y envía otras tantas
+    MPI_Status statuses[4];         //Estado de cada petición
     
     double local_tstart, local_tfinish, local_TotalTime, result_time;   //Tiempos de inicio, fin y diferencia para cada proceso y el tiempo final
     MPI_Barrier(MPI_COMM_WORLD);                                        //Sincronizamos antes de comenzar a contar
