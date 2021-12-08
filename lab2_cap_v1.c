@@ -64,60 +64,18 @@ void show(unsigned char **univ, int width, int height)
     fflush(stdout);
 }
 
-//Añadido un parámetro para comprobar o no los vecinos que no se tiene localmente
-void evolve(unsigned char **univ, unsigned char **new_univ, int width, int height, int check_neigh)
+//Función inalterada
+void evolve(unsigned char **univ, unsigned char **new_univ, int width, int height)
 {
-    if(!check_neigh) {  //Para calcular la evolución de las filas de las que se tienen sus vecinos localmente
-        // Generate new generation: keep it in new_univ
-        #pragma omp parallel for schedule(static)
-        for (int y = 2; y < height-2; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                int neighbors = 0;
-
-                for (int y1 = y - 1; y1 <= y + 1; y1++)
-                {
-                    for (int x1 = x - 1; x1 <= x + 1; x1++)
-                    {
-                        int x2 = x1, y2 = y1;
-                        if (x1 == -1)
-                            x2 = width - 1;
-                        if (y1 == -1)
-                            y2 = height - 1;
-                        if (x1 == width)
-                            x2 = 0;
-                        if (y1 == height)
-                            y2 = 0;
-
-                        if (univ[y2][x2] == '1')
-                            neighbors++;
-                    }
-                }
-
-                if (univ[y][x] == '1')
-                    neighbors--;
-
-                if (neighbors == 3 || (neighbors == 2 && (univ[y][x] == '1')))
-                {
-                    new_univ[y][x] = '1';
-                }
-                else
-                {
-                    new_univ[y][x] = '0';
-                }
-            }
-        }
-        
-    } else {    //Para la primera y última fila almacenadas en cada proceso es necesario obtener información de los vecinos.
-        
-        //Primera fila local
-        #pragma omp parallel for schedule(static)
+    // Generate new generation: keep it in new_univ
+    #pragma omp parallel for schedule(dynamic)
+    for (int y = 0; y < height; y++)
+    {
         for (int x = 0; x < width; x++)
         {
             int neighbors = 0;
 
-            for (int y1 = 1 - 1; y1 <= 1 + 1; y1++)
+            for (int y1 = y - 1; y1 <= y + 1; y1++)
             {
                 for (int x1 = x - 1; x1 <= x + 1; x1++)
                 {
@@ -136,65 +94,28 @@ void evolve(unsigned char **univ, unsigned char **new_univ, int width, int heigh
                 }
             }
 
-            if (univ[1][x] == '1')
+            if (univ[y][x] == '1')
                 neighbors--;
 
-            if (neighbors == 3 || (neighbors == 2 && (univ[1][x] == '1')))
+            if (neighbors == 3 || (neighbors == 2 && (univ[y][x] == '1')))
             {
-                new_univ[1][x] = '1';
+                new_univ[y][x] = '1';
             }
             else
             {
-                new_univ[1][x] = '0';
-            }
-        }
-        
-        //Última fila local
-        #pragma omp parallel for schedule(static)
-        for (int x = 0; x < width; x++)
-        {
-            int neighbors = 0;
-
-            for (int y1 = (height-2) - 1; y1 <= (height-2) + 1; y1++)
-            {
-                for (int x1 = x - 1; x1 <= x + 1; x1++)
-                {
-                    int x2 = x1, y2 = y1;
-                    if (x1 == -1)
-                        x2 = width - 1;
-                    if (y1 == -1)
-                        y2 = height - 1;
-                    if (x1 == width)
-                        x2 = 0;
-                    if (y1 == height)
-                        y2 = 0;
-
-                    if (univ[y2][x2] == '1')
-                        neighbors++;
-                }
-            }
-
-            if (univ[height-2][x] == '1')
-                neighbors--;
-
-            if (neighbors == 3 || (neighbors == 2 && (univ[height-2][x] == '1')))
-            {
-                new_univ[height-2][x] = '1';
-            }
-            else
-            {
-                new_univ[height-2][x] = '0';
+                new_univ[y][x] = '0';
             }
         }
     }
 }
 
+//Función modificada
 int empty(unsigned char **univ, int width, int height)
 {
     // Checks if local is empty or not (a.k a. all the cells are dead)    
     int check = 0;
-    #pragma omp parallel for shared(check, univ) schedule(static)
-    for (int y = 1; y < height-1; y++)
+    #pragma omp parallel for shared(check, univ) schedule(dynamic)
+    for (int y = 1; y < height-1; y++)  //No necesitamos verificar la primera y última fila pues son para los vecinos
     {
         for (int x = 0; x < width; x++)
         {
@@ -203,21 +124,24 @@ int empty(unsigned char **univ, int width, int height)
         }
     }
     
+    //Se calcula la cantidad de filas vacias
     int result;
     MPI_Allreduce(&check, &result, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
+    //Si es cero el universo entero está vacío
     if(result == 0){
         return true;
     }
     return false;
 }
 
+//Función modificada
 int similarity(unsigned char **univ, unsigned char **new_univ, int width, int height)
 {
     // Check if the new generation is the same with the previous generation
     int check = 0;
-    #pragma omp parallel for shared(check, univ, new_univ) schedule(static)
-    for (int y = 1; y < height-1; y++)
+    #pragma omp parallel for shared(check, univ, new_univ) schedule(dynamic)
+    for (int y = 1; y < height-1; y++)  //No necesitamos verificar la primera y última fila pues son para los vecinos
     {
         for (int x = 0; x < width; x++)
         {
@@ -226,14 +150,15 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
         }
     }
     
+    //Se calcula la cantidad de filas diferentes encontradas
     int result;
     MPI_Allreduce(&check, &result, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
+    //Si es cero el universo antiguo y el nuevo son iguales
     if(result == 0){
         return true;
     }
     return false;
-
 }
 
 void game(int width, int height, char *fileArg)
@@ -337,7 +262,7 @@ void game(int width, int height, char *fileArg)
     //Para facilitar el tratamiento y reutilizar la algoritmia se tranforman los datos recibidos a forma matricial
     unsigned char** local_univ = malloc((2+local_nrow)*sizeof(unsigned char*));         //Universo actual local
     unsigned char** local_new_univ = malloc((2+local_nrow)*sizeof(unsigned char*));     //Universo evolcionado local
-    for(int i = 0; i < local_nrow+2; i++){
+    for(int i = 0; i < local_nrow+2; i++) {
         local_univ[i] = &(aux_univ[width*i]);
         local_new_univ[i] = malloc(width*sizeof(unsigned char));
         if (local_univ[i] == NULL || local_new_univ[i] == NULL)
@@ -346,13 +271,12 @@ void game(int width, int height, char *fileArg)
 
     //Se definen los vecinos de cada proceso
     int up_neigh = rank - 1;
-    if(up_neigh < 0){
+    if(up_neigh < 0)
         up_neigh = size - 1;
-    }
+    
     int down_neigh = rank + 1;
-    if(down_neigh >= size){
+    if(down_neigh >= size)
         down_neigh = 0;
-    }
 
     //Inalterado
     int generation = 1;
@@ -377,16 +301,10 @@ void game(int width, int height, char *fileArg)
         MPI_Recv_init(&(local_univ[0][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD, &requests[2]);
         MPI_Recv_init(&(local_univ[local_nrow+1][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD, &requests[3]);
 
-        MPI_Startall(4, requests); //Se ejecutan todas las peticiones
-
-        //Si se tienen suficientes filas localmente se puede calcular parte de la evolución
-        if(local_nrow >= 3){
-            evolve(local_univ, local_new_univ, width, local_nrow+2, false);
-        }
-
-        //Por último se calcula la evolución de la primera y última fila que se reciben de los vecinos
-        MPI_Waitall(4, requests, statuses);                             //Se espera a que se completen las peticioens
-        evolve(local_univ, local_new_univ, width, local_nrow+2, true);  //Se evolucionan las filas recibidas
+        MPI_Startall(4, requests);                                  //Se ejecutan todas las peticiones
+        MPI_Waitall(4, requests, statuses);                         //Se espera a que se completen las peticiones
+        
+        evolve(local_univ, local_new_univ, width, local_nrow+2);    //Se evoluciona con las filas recibidas
 
 //Código original adaptado a los datos locales
 #ifdef CHECK_SIMILARITY
