@@ -1,4 +1,5 @@
 // To compile: make game
+// export OMP_NUM_THREADS=2
 // To run: ./a.out [width] [height] [input_file]
 
 #define _DEFAULT_SOURCE
@@ -69,6 +70,7 @@ void evolve(unsigned char **univ, unsigned char **new_univ, int width, int heigh
 {
     // Generate new generation: keep it in new_univ
     #pragma omp parallel for schedule(dynamic)
+    #pragma loop(hint_parallel(#pragma loop(hint_parallel())
     for (int y = 0; y < height; y++)
     {
         for (int x = 0; x < width; x++)
@@ -115,6 +117,7 @@ int empty(unsigned char **univ, int width, int height)
     // Checks if local is empty or not (a.k a. all the cells are dead)    
     int check = 0;
     #pragma omp parallel for shared(check, univ) schedule(dynamic)
+    #pragma loop(hint_parallel(#pragma loop(hint_parallel())
     for (int y = 1; y < height-1; y++)  //No necesitamos verificar la primera y última fila pues son para los vecinos
     {
         for (int x = 0; x < width; x++)
@@ -141,6 +144,7 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
     // Check if the new generation is the same with the previous generation
     int check = 0;
     #pragma omp parallel for shared(check, univ, new_univ) schedule(dynamic)
+    #pragma loop(hint_parallel(#pragma loop(hint_parallel())
     for (int y = 1; y < height-1; y++)  //No necesitamos verificar la primera y última fila pues son para los vecinos
     {
         for (int x = 0; x < width; x++)
@@ -221,10 +225,18 @@ void game(int width, int height, char *fileArg)
     MPI_Scatter(nrows_proc, 1, MPI_INT, &local_nrow, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     // Allocate space for the two game arrays (one for current generation, the other for the new one)
-    unsigned char *univ = malloc(width * height * sizeof(unsigned char)),
+    unsigned char **univ = malloc(height * sizeof(unsigned char *));
+    unsigned char *univ_aplanado = malloc(width * height * sizeof(unsigned char)),
                   *aux_univ = malloc((2+local_nrow)*width*sizeof(unsigned char));
-    if (univ == NULL)
+    if (univ == NULL || univ_aplanado == NULL || aux_univ == NULL)
         perror_exit("malloc: ");
+    
+    for (int i = 0; i < height; i++)
+    {
+        univ[i] = malloc(width * sizeof(unsigned char));
+        if (univ[i] == NULL)
+            perror_exit("malloc: ");
+    }
 
     //El proceso principal lee el fichero como el programa original
     if(rank == 0){
@@ -234,7 +246,7 @@ void game(int width, int height, char *fileArg)
         FILE *filePtr = fopen(fileArg, "r");
         if (filePtr == NULL)
             perror_exit("fopen: ");
-
+        
         // Populate univ with its contents
         for (int y = 0; y < height; y++)
         {
@@ -243,11 +255,21 @@ void game(int width, int height, char *fileArg)
                 char c = fgetc(filePtr);
                 if ((c != EOF) && (c != '\n'))
                 {
-                    univ[y*width+x] = c;
+                    univ[y][x] = c;
                     x++;
                 }
             }
         }
+        
+        //Se aplana el universo leído, se prodría añadir directamente al aplanado pero por no modificar el código original se prefiere esta forma
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                univ_aplanado[y*width+x] = univ[y][x];
+            }
+        }
+        
         fclose(filePtr);
         filePtr = NULL;
         
@@ -256,8 +278,9 @@ void game(int width, int height, char *fileArg)
     }
 
     //Se envían los datos leídos teniendo en cuenta el offset y dejando la primera fila libre
-    MPI_Scatterv(univ, nelem_proc, offset, MPI_UNSIGNED_CHAR, aux_univ+width, local_nrow*width, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    MPI_Scatterv(univ_aplanado, nelem_proc, offset, MPI_UNSIGNED_CHAR, aux_univ+width, local_nrow*width, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
     free(univ);
+    free(univ_aplanado);
 
     //Para facilitar el tratamiento y reutilizar la algoritmia se tranforman los datos recibidos a forma matricial
     unsigned char** local_univ = malloc((2+local_nrow)*sizeof(unsigned char*));         //Universo actual local
@@ -284,9 +307,6 @@ void game(int width, int height, char *fileArg)
     int counter = 0;
 #endif
     
-    MPI_Request requests[4];        //Peticiones que cada proceso, recibe 2 filas y envía otras tantas
-    MPI_Status statuses[4];         //Estado de cada petición
-    
     double local_tstart, local_tfinish, local_TotalTime, result_time;   //Tiempos de inicio, fin y diferencia para cada proceso y el tiempo final
     MPI_Barrier(MPI_COMM_WORLD);                                        //Sincronizamos antes de comenzar a contar
     local_tstart = MPI_Wtime();                                         //Comienza el timer de MPI
@@ -294,15 +314,12 @@ void game(int width, int height, char *fileArg)
     while ((!empty(local_univ, width, local_nrow+2)) && (generation <= GEN_LIMIT))
     {
         //Se envían las dos filas que requieren los vecinos
-        MPI_Send_init(&(local_univ[1][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD, &requests[0]);
-        MPI_Send_init(&(local_univ[local_nrow][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD, &requests[1]);
+        MPI_Send(&(local_univ[1][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD);
+        MPI_Send(&(local_univ[local_nrow][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD);
 
         //Se reciben las filas requeridas de los vecinos
-        MPI_Recv_init(&(local_univ[0][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD, &requests[2]);
-        MPI_Recv_init(&(local_univ[local_nrow+1][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD, &requests[3]);
-
-        MPI_Startall(4, requests);                                  //Se ejecutan todas las peticiones
-        MPI_Waitall(4, requests, statuses);                         //Se espera a que se completen las peticiones
+        MPI_Recv(&(local_univ[0][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&(local_univ[local_nrow+1][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         
         evolve(local_univ, local_new_univ, width, local_nrow+2);    //Se evoluciona con las filas recibidas
 
