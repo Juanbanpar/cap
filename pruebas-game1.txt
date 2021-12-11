@@ -26,6 +26,12 @@ Finished.
 Generations:    1000
 Execution time: 91.12 msecs
 
+/*
+*
+*   Iteraciones
+*
+*/
+
 [xan@notahackertrustme cap]$ mpirun -np 6 game1 100 100 tablero100
 File reading time:      0.18 msecs
 Finished.
@@ -48,6 +54,21 @@ Finished.
 Generations:    100000
 Execution time: 6377.65 msecs
 
+
+/*
+*
+*   SpeedUp
+*
+*/
+
+[xan@notahackertrustme cap]$ ./game 1000 1000 tablero1000
+Finished.
+
+Generations:    1000
+Execution time: 33651,37 msecs
+Finished
+
+CON OPENMP
 [xan@notahackertrustme cap]$ mpirun -np 2 game1 1000 1000 tablero1000
 File reading time:      18.42 msecs
 Finished.
@@ -55,6 +76,23 @@ Finished.
 Generations:    1000
 Execution time: 18749.47 msecs
 
+CON OPENMP Y VECT
+[xan@notahackertrustme cap]$ mpirun -np 2 game1 1000 1000 tablero1000
+File reading time:      24.49 msecs
+Finished.
+
+Generations:    1000
+Execution time: 15399.26 msecs
+
+SIN OPENMP
+[xan@notahackertrustme cap]$ mpirun -np 2 game1 1000 1000 tablero1000
+File reading time:      21.33 msecs
+Finished.
+
+Generations:    1000
+Execution time: 20647.03 msecs
+
+CON OPENMP
 [xan@notahackertrustme cap]$ mpirun -np 3 game1 1000 1000 tablero1000
 File reading time:      16.39 msecs
 Finished.
@@ -62,6 +100,24 @@ Finished.
 Generations:    1000
 Execution time: 12811.51 msecs
 
+CON OPENMP Y VECT
+[xan@notahackertrustme cap]$ mpirun -np 3 game1 1000 1000 tablero1000
+File reading time:      18.45 msecs
+Finished.
+
+Generations:    1000
+Execution time: 6788.05 msecs
+
+
+SIN OPENMP
+[xan@notahackertrustme cap]$ mpirun -np 3 game1 1000 1000 tablero1000
+File reading time:      18.36 msecs
+Finished.
+
+Generations:    1000
+Execution time: 14356.44 msecs
+
+CON OPENMP
 [xan@notahackertrustme cap]$ mpirun -np 4 game1 1000 1000 tablero1000
 File reading time:      16.74 msecs
 Finished.
@@ -69,6 +125,23 @@ Finished.
 Generations:    1000
 Execution time: 9639.25 msecs
 
+CON OPENMP Y VECT
+[xan@notahackertrustme cap]$ mpirun -np 4 game1 1000 1000 tablero1000
+File reading time:      18.87 msecs
+Finished.
+
+Generations:    1000
+Execution time: 7978.36 msecs
+
+SIN OPENMP
+[xan@notahackertrustme cap]$ mpirun -np 4 game1 1000 1000 tablero1000
+File reading time:      22.74 msecs
+Finished.
+
+Generations:    1000
+Execution time: 10833.25 msecs
+
+CON OPENMP
 [xan@notahackertrustme cap]$ mpirun -np 5 game1 1000 1000 tablero1000
 File reading time:      16.60 msecs
 Finished.
@@ -76,12 +149,64 @@ Finished.
 Generations:    1000
 Execution time: 8044.79 msecs
 
+CON OPENMP y VECT
+[xan@notahackertrustme cap]$ mpirun -np 5 game1 1000 1000 tablero1000
+File reading time:      18.84 msecs
+Finished.
+
+Generations:    1000
+Execution time: 6627.97 msecs
+
+SIN OPENMP
+[xan@notahackertrustme cap]$ mpirun -np 5 game1 1000 1000 tablero1000
+File reading time:      18.86 msecs
+Finished.
+
+Generations:    1000
+Execution time: 8819.18 msecs
+
+CON OPENMP
 [xan@notahackertrustme cap]$ mpirun -np 6 game1 1000 1000 tablero1000
 File reading time:      16.63 msecs
 Finished.
 
 Generations:    1000
 Execution time: 6712.72 msecs
+
+CON OPENMP Y VECT
+[xan@notahackertrustme cap]$ mpirun -np 6 game1 1000 1000 tablero1000
+File reading time:      21.55 msecs
+Finished.
+
+Generations:    1000
+Execution time: 6171.20 msecs
+
+SIN OPENMP
+[xan@notahackertrustme cap]$ mpirun -np 6 game1 1000 1000 tablero1000
+File reading time:      18.83 msecs
+Finished.
+
+Generations:    1000
+Execution time: 7593.55 msecs
+
+/*
+*
+* O3
+*
+*/
+
+[xan@notahackertrustme cap]$ mpirun -np 6 game1 1000 1000 tablero1000
+File reading time:      16.00 msecs
+Finished.
+
+Generations:    1000
+Execution time: 1317.50 msecs
+
+/*
+*
+*   OpenMP vs no OpenMP
+*
+*/
 
 [xan@notahackertrustme cap]$ mpirun -np 6 game1 5000 5000 tablero5000
 File reading time:      423.79 msecs
@@ -97,6 +222,13 @@ Finished.
 
 Generations:    1000
 Execution time: 134909.37 msecs
+
+
+/*
+*
+*   Nucleos vs Hilos
+*
+*/
 
 [xan@notahackertrustme cap]$ export OMP_NUM_THREADS=4
 [xan@notahackertrustme cap]$ mpirun -np 3 game1 5000 5000 tablero5000
@@ -115,12 +247,27 @@ Generations:    1000
 Execution time: 159579.21 msecs
 
 [xan@notahackertrustme cap]$ export OMP_NUM_THREADS=2
+[xan@notahackertrustme cap]$ mpirun -np 6 game1 5000 5000 tablero5000
+File reading time:      425.57 msecs
+Finished.
+
+Generations:    1000
+Execution time: 134909.37 msecs
+
+/*
+*
+*   Filas vs no Columnas
+*
+*/
+
+[xan@notahackertrustme cap]$ export OMP_NUM_THREADS=2
 [xan@notahackertrustme cap]$ mpirun -np 6 game1 10 100000 tablero10-100000 
 File reading time:      17.92 msecs
 Finished.
 
 Generations:    1000
 Execution time: 7716.78 msecs
+
 
 [xan@notahackertrustme cap]$ mpirun -np 6 game1 100000 10 tablero100000-10 
 File reading time:      19.23 msecs
@@ -135,3 +282,59 @@ Finished.
 
 Generations:    1000
 Execution time: 6561.73 msecs
+
+
+
+/*
+*
+*   Speedup con OpenMP 2 y vectorización
+*
+*/
+
+[xan@notahackertrustme cap]$ ./game 1000 1000 tablero1000
+Finished.
+
+Generations:    1000
+Execution time: 33651,37 msecs
+Finished
+
+[xan@notahackertrustme cap]$ mpirun -np 2 game1 1000 1000 tablero1000
+File reading time:      18.35 msecs
+Finished.
+
+Generations:    1000
+Execution time: 15433.08 msecs
+
+[xan@notahackertrustme cap]$ mpirun -np 3 game1 1000 1000 tablero1000
+File reading time:      18.55 msecs
+Finished.
+
+Generations:    1000
+Execution time: 6762.70 msecs
+
+
+
+
+
+[xan@notahackertrustme cap]$ mpirun -np 6 game1 2000 2000 tablero5000
+File reading time:      85.44 msecs
+Finished.
+
+Generations:    1000
+Execution time: 23811.55 msecs
+
+[xan@notahackertrustme cap]$ mpirun -np 5 game1 2000 2000 tablero5000
+File reading time:      79.24 msecs
+Finished.
+
+Generations:    1000
+Execution time: 25509.80 msecs
+
+[xan@notahackertrustme cap]$ mpirun -np 4 game1 2000 2000 tablero5000
+File reading time:      75.55 msecs
+Finished.
+
+Generations:    1000
+Execution time: 25928.38 msecs
+
+
