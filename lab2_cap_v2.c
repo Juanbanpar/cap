@@ -302,11 +302,6 @@ void game(int width, int height, char *fileArg)
         if (univ[i] == NULL)
             perror_exit("malloc: ");
     }
-    
-    unsigned char **local_send_matrix = allocate_memory(local_N,local_M);
-    unsigned char **local_matrix = allocate_memory(local_N+2,local_M+2);
-    if (local_matrix == NULL)
-        perror_exit("malloc: ");
 
     MPI_Barrier(MPI_COMM_WORLD);
     //El proceso principal lee el fichero como el programa original
@@ -380,11 +375,9 @@ void game(int width, int height, char *fileArg)
     MPI_Recv(matrix_recv, buf_size, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     
     MPI_Barrier(MPI_COMM_WORLD);
-
-    printf("Hasta aquí\n");
     
     if(rank == 0) {
-        printf("%d\t%d\n", local_N, local_M);
+        printf("\n%d\t%d\n\n", local_N, local_M);
         for(int i=0;i<local_N*local_M;++i)
         {
             printf("%c",matrix_recv[i]);
@@ -393,7 +386,7 @@ void game(int width, int height, char *fileArg)
     }
     
     if(rank == 1) {
-        printf("%d\t%d\n", local_N, local_M);
+        printf("\n%d\t%d\n\n", local_N, local_M);
         for(int i=0;i<local_N*local_M;++i)
         {
             printf("%c",matrix_recv[i]);
@@ -402,7 +395,7 @@ void game(int width, int height, char *fileArg)
     }
     
     if(rank == 2) {
-        printf("%d\t%d\n", local_N, local_M);
+        printf("\n%d\t%d\n\n", local_N, local_M);
         for(int i=0;i<local_N*local_M;++i)
         {
             printf("%c",matrix_recv[i]);
@@ -411,10 +404,67 @@ void game(int width, int height, char *fileArg)
     }
     
     if(rank == 3) {
-        printf("%d\t%d\n", local_N, local_M);
+        printf("\n%d\t%d\n\n", local_N, local_M);
         for(int i=0;i<local_N*local_M;++i)
         {
             printf("%c",matrix_recv[i]);
+            printf("\n");
+        }
+    }
+    
+    unsigned char **local_matrix = allocate_memory(local_N+2,local_M+2);
+    if (local_matrix == NULL)
+        perror_exit("malloc: ");
+    
+    for(int i = 0; i < local_N+2; i++) {
+        for(int j = 0; j < local_M+2; j++) {
+            local_matrix[i][j] = '2';
+        }
+    }
+    
+    for(int i = 0; i < local_N; i++) {
+        for(int j = 0; j < local_M; j++) {
+            local_matrix[i+1][j+1] = matrix_recv[j+i*local_M];
+        }
+    }
+    
+
+    printf("\n");
+    if(rank == 0) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    printf("\n");
+    if(rank == 1) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    printf("\n");
+    if(rank == 2) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    printf("\n");
+    if(rank == 3) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
             printf("\n");
         }
     }
@@ -437,12 +487,13 @@ void game(int width, int height, char *fileArg)
 
     //Find ranks of my 8 neighbours
     int left,right,bottom,top,topleft,topright,bottomleft,bottomright;
-    //find_neighbours(comm_2D,my_rank,NPROWS,NPCOLS,&left,&right,&top,&bottom,&topleft,&topright,&bottomleft,&bottomright);
     int source,dest,disp=1;
     //int my_coords[2];
     int corner_coords[2];
     int corner_rank;
 
+    printf("HASTA AQUÍ\n");
+    
     //Finding top/bottom neighbours
     MPI_Cart_shift(comm_2D,0,disp,top,bottom);
 
@@ -484,7 +535,7 @@ void game(int width, int height, char *fileArg)
     //16 requests , 16 statuses
     MPI_Request array_of_requests[16];
     MPI_Status array_of_statuses[16];
-
+    
     //Inalterado
     int generation = 1;
 #ifdef CHECK_SIMILARITY
