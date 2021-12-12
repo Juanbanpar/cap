@@ -217,11 +217,6 @@ void game(int width, int height, char *fileArg)
     const int NPCOLS = dims[1]; /* Number of 'block' cols */
     int *num_rows; /* Number of rows for the i-th process [local_N]*/
     int *num_cols; /* Number of columns for the i-th process [local_M]*/
-	//int *extent;  /* Extent for the i-th process [local_extent]*/
-	//int *disps; /*Displacement for the i-th process [local_disp]*/
-
-	//int local_disp;
-	//int local_extent;
     
     if(rank == 0) {
         num_rows = (int *) malloc(size * sizeof(int));
@@ -242,46 +237,6 @@ void game(int width, int height, char *fileArg)
                 num_cols[i+NPROWS*j]++;
             }
         }
-        
-        /*
-        disps = (int *) malloc(size * sizeof(int));
-        extent = (int *) malloc(size * sizeof(int));
-        
-        for (i=0; i<NPROWS; i++) {
-            for (j=0; j<NPCOLS; j++) {
-                if (j == 0) {
-                    int row;
-                    disps[i*NPCOLS+j] = 0;
-                    //For all rows above me
-                    for(row=1;row<=i;row++) {
-                        disps[i*NPCOLS+j] +=  (width+1)*num_rows[i*NPCOLS+j - row*NPCOLS];
-                    }
-                } else {
-                    //Just add num_cols of the left process to its displacement
-                    disps[i*NPCOLS+j] = disps[i*NPCOLS+j - 1] + num_cols[i*NPCOLS+j - 1];
-                }
-            }
-        }
-            
-        
-        for (i=0; i<NPROWS; i++) {
-            for (j=0; j<NPCOLS; j++) {
-                int current = i*NPCOLS+j;
-                int block;
-
-                //Add newline to the extent
-                //Add num_cols of this process
-                extent[current] = 1 + num_cols[current];
-
-                //For all blocks on the left of me
-                for(block =i*NPCOLS ;block<current;block++)
-                    extent[current] += num_cols[block];
-                //For all blocks on the right
-                for(block = current+1;block<i*NPCOLS+NPCOLS;block++)
-                    extent[current] += num_cols[block];
-            }
-        }
-        */
     }
     
     /*
@@ -304,13 +259,9 @@ void game(int width, int height, char *fileArg)
     // Scatter dimensions,displacement,extent of each process
 	MPI_Scatter(num_rows,1,MPI_INT,&local_N,1,MPI_INT,0,comm_2D);
 	MPI_Scatter(num_cols,1,MPI_INT,&local_M,1,MPI_INT,0,comm_2D);
-    
-    //MPI_Scatter(disps,1,MPI_INT,&local_disp,1,MPI_INT,0,comm_2D);
-    //MPI_Scatter(extent,1,MPI_INT,&local_extent,1,MPI_INT,0,comm_2D);
 
     // Allocate space for the two game arrays (one for current generation, the other for the new one)
-    unsigned char *univ = malloc(height * sizeof(unsigned char));
-                  //*local_matrix = malloc((2+local_N)*(2+local_M)*sizeof(unsigned char));
+    unsigned char **univ = malloc(height * sizeof(unsigned char *));
     for (int i = 0; i < height; i++)
     {
         univ[i] = malloc(width * sizeof(unsigned char));
@@ -318,21 +269,22 @@ void game(int width, int height, char *fileArg)
             perror_exit("malloc: ");
     }
     
+    unsigned char **local_send_matrix = allocate_memory(local_N,local_M);
     unsigned char **local_matrix = allocate_memory(local_N+2,local_M+2);
-    if (univ == NULL)
+    if (local_matrix == NULL)
         perror_exit("malloc: ");
 
     MPI_Barrier(MPI_COMM_WORLD);
     //El proceso principal lee el fichero como el programa original
-    //if(rank == 0){
+    if(rank == 0){
         clock_t t_start = clock();
         
         //Inalterado
         FILE *filePtr = fopen(fileArg, "r");
         if (filePtr == NULL)
             perror_exit("fopen: ");
-
-         // Populate univ with its contents
+        
+        // Populate univ with its contents
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width;)
@@ -350,41 +302,49 @@ void game(int width, int height, char *fileArg)
         
         double msecs = ((float)clock() - t_start) / CLOCKS_PER_SEC * 1000.0f;
         printf("File reading time:\t%.2f msecs\n", msecs);
-    //}
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    unsigned char *globalptr = NULL;
+    int sendcounts[size];
+    int senddispls[size];
+    MPI_Datatype sendtypes[size];
+    int recvcounts[size];
+    int recvdispls[size];
+    MPI_Datatype recvtypes[size];
+
+    for (int proc=0; proc<size; proc++) {
+        recvcounts[proc] = 0;
+        recvdispls[proc] = 0;
+        recvtypes[proc] = MPI_UNSIGNED_CHAR;
+
+        sendcounts[proc] = 0;
+        senddispls[proc] = 0;
+        sendtypes[proc] = MPI_UNSIGNED_CHAR;
+    }
+    recvcounts[0] = local_N * local_M;
+    recvdispls[0] = 0;
+    
+    //Hasta aquí bien
+    
+    if(rank = 0) {
+        /* now figure out the displacement and type of each processor's data */
+        for (int proc=0; proc<size; proc++) {
+            int row = rank / num_cols[proc];
+            int col = rank % num_cols[proc];
+            
+            sendcounts[proc] = 1;
+            //senddispls[proc] = (row*blocksize*globalsizes[1] + col*blocksize)*sizeof(char);
+            senddispls[proc] = (row*num_rows[proc]*num_cols[proc] + col*num_cols[proc])*sizeof(unsigned char);
+        }
+        globalptr = &(univ[0][0]);
+    }
+    
     MPI_Barrier(MPI_COMM_WORLD);
     
-    printf("Problemas en el paraíso?\n");
-    int x=0;
-    int y=0;
-    for(i=1;i<=local_N;++i) {
-        for(j=1;j<=local_M;++j) {
-            //local_matrix[i][j] = univ[y][x];
-            
-            printf("%c",univ[y][x]);
-            //printf("%c",local_matrix[i][j]);
-            
-            x++;
-        }
-        y++;
-    }
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    //Se envían los datos leídos teniendo en cuenta el offset y dejando la primera fila libre
-    //MPI_Scatterv(univ, extent, disps, MPI_UNSIGNED_CHAR, aux_univ+width, local_N*local_M, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    MPI_Alltoallw(globalptr, sendcounts, senddispls, sendtypes, &(local_send_matrix[0][0]), recvcounts, recvdispls, recvtypes, MPI_COMM_WORLD);
+    
     //free(univ);
-
-    /*
-    //AQUÍ VAMOS A TENER PROBLEMAS
-    //Para facilitar el tratamiento y reutilizar la algoritmia se tranforman los datos recibidos a forma matricial
-    unsigned char** local_univ = malloc((2+local_N)*sizeof(unsigned char*));         //Universo actual local
-    unsigned char** local_new_univ = malloc((2+local_N)*sizeof(unsigned char*));     //Universo evolucionado local
-    for(int i = 0; i < local_N+2; i++){
-        local_univ[i] = &(aux_univ[(local_M+2)*i]);
-        local_new_univ[i] = malloc((local_M+2)*sizeof(unsigned char));
-        if (local_univ[i] == NULL || local_new_univ[i] == NULL)
-            perror_exit("malloc: ");
-    }
-    */
 
     unsigned char **next_gen = allocate_memory(local_N+2,local_M+2);
 
