@@ -215,19 +215,12 @@ void game(int width, int height, char *fileArg)
 
     const int NPROWS = dims[0]; /* Number of 'block' rows */
     const int NPCOLS = dims[1]; /* Number of 'block' cols */
-    
-    int *num_x = malloc(dims[0] * sizeof(int));
-    int *num_y = malloc(dims[1] * sizeof(int));
-
-    int *disp_x = malloc(dims[0] * sizeof(int));
-    int *disp_y = malloc(dims[1] * sizeof(int));
-    
     int *num_rows; /* Number of rows for the i-th process [local_N]*/
     int *num_cols; /* Number of columns for the i-th process [local_M]*/
     
     if(rank == 0) {
         num_rows = (int *) malloc(size * sizeof(int));
-        num_cols = (int *) malloc(size * sizeof(int));
+		num_cols = (int *) malloc(size * sizeof(int));
         
         int i,j;
         for (i=0; i<size; i++) {
@@ -244,32 +237,6 @@ void game(int width, int height, char *fileArg)
                 num_cols[i+NPROWS*j]++;
             }
         }
-    }
-    
-    //Eje X
-    int N_x_proc = (int)width/dims[0];
-    for(int i = 0; i < dims[0]; i++) {
-        num_x[i] = N_x_proc;
-    }
-    for(int i = 0; i < width%dims[0]; i++) {
-        num_x[i]++;
-    }
-    disp_x[0] = 0;
-    for(int i = 1; i < dims[0]; i++) {
-        disp_x[i] = disp_x[i-1] + num_x[i-1];
-    }
-    
-    //Eje Y
-    int N_y_proc = (int)height/dims[1];
-    for(int i = 0; i < dims[1]; i++) {
-        num_y[i] = N_y_proc;
-    }
-    for(int i = 0; i < height%dims[1]; i++) {
-        num_y[i]++;
-    }
-    disp_y[0] = 0;
-    for(int i = 1; i < dims[1]; i++) {
-        disp_y[i] = disp_y[i-1] + num_y[i-1];
     }
     
     /*
@@ -295,7 +262,6 @@ void game(int width, int height, char *fileArg)
 
     // Allocate space for the two game arrays (one for current generation, the other for the new one)
     unsigned char **univ = malloc(height * sizeof(unsigned char *));
-    unsigned char *univ_aplanado = malloc(width * height * sizeof(unsigned char));
     for (int i = 0; i < height; i++)
     {
         univ[i] = malloc(width * sizeof(unsigned char));
@@ -331,16 +297,6 @@ void game(int width, int height, char *fileArg)
                 }
             }
         }
-        
-        //Se aplana el universo leído, se prodría añadir directamente al aplanado pero por no modificar el código original se prefiere esta forma
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                univ_aplanado[y*width+x] = univ[y][x];
-            }
-        }
-        
         fclose(filePtr);
         filePtr = NULL;
         
@@ -348,142 +304,114 @@ void game(int width, int height, char *fileArg)
         printf("File reading time:\t%.2f msecs\n", msecs);
     }
     MPI_Barrier(MPI_COMM_WORLD);
-    
-    //Escribir la matriz
-    int buf_size = num_x[0] * num_y[0];
-    unsigned char *matrix_buf;
-    int index, x, y;
-    
-    if(rank == 0) {
-        for(int i = 0; i < dims[1]; i++) {
-            for(int j = 0; j < dims[0]; j++) {
-                matrix_buf = malloc(buf_size * sizeof(unsigned char *));
-                
-                for(int k = 0; k < num_y[i]; k++) {
-                    for(int m = 0; m < num_x[j]; m++) {
-                        index = k * num_x[j] + m;
-                        
-                        x = disp_x[j] + m;
-                        y = disp_y[i] * width + width * k;
-                        
-                        matrix_buf[index] = univ_aplanado[x+y];
-                    }
-                }
-                
-                MPI_Send(matrix_buf, buf_size, MPI_UNSIGNED_CHAR, i*dims[0]+j, 0, MPI_COMM_WORLD);
-                free(matrix_buf);
-            }
-        }
+
+    unsigned char *globalptr = NULL;
+    int sendcounts[size];
+    int senddispls[size];
+    MPI_Datatype sendtypes[size];
+    int recvcounts[size];
+    int recvdispls[size];
+    MPI_Datatype recvtypes[size];
+
+    for (int proc=0; proc<size; proc++) {
+        recvcounts[proc] = 0;
+        recvdispls[proc] = 0;
+        recvtypes[proc] = MPI_UNSIGNED_CHAR;
+
+        sendcounts[proc] = 0;
+        senddispls[proc] = 0;
+        sendtypes[proc] = MPI_UNSIGNED_CHAR;
     }
+    recvcounts[0] = local_N * local_M;
+    recvdispls[0] = 0;
     
-    unsigned char *matrix_recv = malloc(buf_size * sizeof(unsigned char *));
-    MPI_Recv(matrix_recv, buf_size, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    //Hasta aquí bien
+    
+    if(rank = 0) {
+        /* now figure out the displacement and type of each processor's data */
+        for (int proc=0; proc<size; proc++) {
+            int row = rank / num_cols[proc];
+            int col = rank % num_cols[proc];
+            
+            sendcounts[proc] = 1;
+            //senddispls[proc] = (row*blocksize*globalsizes[1] + col*blocksize)*sizeof(char);
+            senddispls[proc] = (row*num_rows[proc]*num_cols[proc] + col*num_cols[proc])*sizeof(unsigned char);
+        }
+        globalptr = &(univ[0][0]);
+    }
     
     MPI_Barrier(MPI_COMM_WORLD);
+    
+    MPI_Alltoallw(globalptr, sendcounts, senddispls, sendtypes, &(local_send_matrix[0][0]), recvcounts, recvdispls, recvtypes, MPI_COMM_WORLD);
+    
+    //free(univ);
 
-    printf("Hasta aquí\n");
-    
-    if(rank == 0) {
-        printf("%d\t%d\n", local_N, local_M);
-        for(int i=0;i<local_N*local_M;++i)
-        {
-            printf("%c",matrix_recv[i]);
-            printf("\n");
-        }
-    }
-    
-    if(rank == 1) {
-        printf("%d\t%d\n", local_N, local_M);
-        for(int i=0;i<local_N*local_M;++i)
-        {
-            printf("%c",matrix_recv[i]);
-            printf("\n");
-        }
-    }
-    
-    if(rank == 2) {
-        printf("%d\t%d\n", local_N, local_M);
-        for(int i=0;i<local_N*local_M;++i)
-        {
-            printf("%c",matrix_recv[i]);
-            printf("\n");
-        }
-    }
-    
-    if(rank == 3) {
-        printf("%d\t%d\n", local_N, local_M);
-        for(int i=0;i<local_N*local_M;++i)
-        {
-            printf("%c",matrix_recv[i]);
-            printf("\n");
-        }
-    }
-    
     unsigned char **next_gen = allocate_memory(local_N+2,local_M+2);
 
-    //Create 4 datatypes for sending
-    MPI_Datatype firstcolumn_send,firstrow_send,lastcolumn_send,lastrow_send;
-    create_datatype(&firstcolumn_send,1,1,local_N,1);
-    create_datatype(&firstrow_send,1,1,1,local_M);
-    create_datatype(&lastcolumn_send,1,local_M,local_N,1);
-    create_datatype(&lastrow_send,local_N,1,1,local_M);
+	/*Create 4 datatypes for sending*/
+	MPI_Datatype firstcolumn_send,firstrow_send,lastcolumn_send,lastrow_send;
+	create_datatype(&firstcolumn_send,1,1,local_N,1);
+	create_datatype(&firstrow_send,1,1,1,local_M);
+	create_datatype(&lastcolumn_send,1,local_M,local_N,1);
+	create_datatype(&lastrow_send,local_N,1,1,local_M);
 
-    //Create 4 datatypes for receiving
-    MPI_Datatype firstcolumn_recv,firstrow_recv,lastcolumn_recv,lastrow_recv;
-    create_datatype(&firstcolumn_recv,1,0,local_N,1);
-    create_datatype(&firstrow_recv,0,1,1,local_M);
-    create_datatype(&lastcolumn_recv,1,local_M+1,local_N,1);
-    create_datatype(&lastrow_recv,local_N+1,1,1,local_M);
+	/*Create 4 datatypes for receiving*/
+	MPI_Datatype firstcolumn_recv,firstrow_recv,lastcolumn_recv,lastrow_recv;
+	create_datatype(&firstcolumn_recv,1,0,local_N,1);
+	create_datatype(&firstrow_recv,0,1,1,local_M);
+	create_datatype(&lastcolumn_recv,1,local_M+1,local_N,1);
+	create_datatype(&lastrow_recv,local_N+1,1,1,local_M);
 
-    //Find ranks of my 8 neighbours
-    int left,right,bottom,top,topleft,topright,bottomleft,bottomright;
-    //find_neighbours(comm_2D,my_rank,NPROWS,NPCOLS,&left,&right,&top,&bottom,&topleft,&topright,&bottomleft,&bottomright);
+	/*Find ranks of my 8 neighbours*/
+	int left,right,bottom,top,topleft,topright,bottomleft,bottomright;
+	//find_neighbours(comm_2D,my_rank,NPROWS,NPCOLS,&left,&right,&top,&bottom,&topleft,&topright,&bottomleft,&bottomright);
     int source,dest,disp=1;
-    //int my_coords[2];
-    int corner_coords[2];
-    int corner_rank;
+	//int my_coords[2];
+	int corner_coords[2];
+	int corner_rank;
 
-    //Finding top/bottom neighbours
-    MPI_Cart_shift(comm_2D,0,disp,top,bottom);
 
-    //Finding left/right neighbours
-    MPI_Cart_shift(comm_2D,1,disp,left,right);
+	/*Finding top/bottom neighbours*/
+	MPI_Cart_shift(comm_2D,0,disp,top,bottom);
 
-    //Finding top-right corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = my_coords[0] -1;
-    corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
-    if(corner_coords[0] < 0)
-        corner_coords[0] = NPROWS -1;
-    MPI_Cart_rank(comm_2D,corner_coords,topright);
+	/*Finding left/right neighbours*/
+	MPI_Cart_shift(comm_2D,1,disp,left,right);
 
-    //Finding top-left corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = my_coords[0] - 1;
-    corner_coords[1] = my_coords[1] - 1 ;
-    if(corner_coords[0]<0)
-        corner_coords[0] = NPROWS -1;
-    if (corner_coords[1]<0)
-        corner_coords[1] = NPCOLS -1;
-    MPI_Cart_rank(comm_2D,corner_coords,topleft);
+	/*Finding top-right corner*/
+	MPI_Cart_coords(comm_2D,rank,2,my_coords);
+	corner_coords[0] = my_coords[0] -1;
+	corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
+	if(corner_coords[0] < 0)
+		corner_coords[0] = NPROWS -1;
+	MPI_Cart_rank(comm_2D,corner_coords,topright);
 
-    //Finding bottom-right corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
-    corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
-    MPI_Cart_rank(comm_2D,corner_coords,bottomright);
+	/*Finding top-left corner*/
+	MPI_Cart_coords(comm_2D,rank,2,my_coords);
+	corner_coords[0] = my_coords[0] - 1;
+	corner_coords[1] = my_coords[1] - 1 ;
+	if(corner_coords[0]<0)
+		corner_coords[0] = NPROWS -1;
+	if (corner_coords[1]<0)
+		corner_coords[1] = NPCOLS -1;
+	MPI_Cart_rank(comm_2D,corner_coords,topleft);
 
-    //Finding bottom-left corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
-    corner_coords[1] = my_coords[1] - 1 ;
-    if (corner_coords[1]<0)
-        corner_coords[1] = NPCOLS -1;
-    MPI_Cart_rank(comm_2D,corner_coords,bottomleft);
+	/*Finding bottom-right corner*/
+	MPI_Cart_coords(comm_2D,rank,2,my_coords);
+	corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
+	corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
+	MPI_Cart_rank(comm_2D,corner_coords,bottomright);
+
+	/*Finding bottom-left corner*/
+	MPI_Cart_coords(comm_2D,rank,2,my_coords);
+	corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
+	corner_coords[1] = my_coords[1] - 1 ;
+	if (corner_coords[1]<0)
+		corner_coords[1] = NPCOLS -1;
+	MPI_Cart_rank(comm_2D,corner_coords,bottomleft);
     
-    //16 requests , 16 statuses
-    MPI_Request array_of_requests[16];
-    MPI_Status array_of_statuses[16];
+    /*16 requests , 16 statuses */
+	MPI_Request array_of_requests[16];
+	MPI_Status array_of_statuses[16];
 
     //Inalterado
     int generation = 1;
@@ -518,18 +446,18 @@ void game(int width, int height, char *fileArg)
         MPI_Recv_init(&(local_matrix[local_N+1][0]),1,		MPI_UNSIGNED_CHAR,		bottomleft,		1,comm_2D,&array_of_requests[15]);
         
         if(rank==0)
-        {
-            printf("Generation:%d\n",generation+1);
-            for(i=0;i<local_M;++i)
+		{
+			printf("Generation:%d\n",generation+1);
+			for(i=0;i<local_M;++i)
                 putchar('~');
-            putchar('\n');
+			putchar('\n');
             print_local_matrix();
-        }
+		}
         
-        //Start all requests [8 sends + 8 receives]
-        MPI_Startall(16,array_of_requests);
-        //Make sure all requests are completed
-        MPI_Waitall(16,array_of_requests,array_of_statuses);
+        /*Start all requests [8 sends + 8 receives]*/
+		MPI_Startall(16,array_of_requests);
+        /*Make sure all requests are completed*/
+		MPI_Waitall(16,array_of_requests,array_of_statuses);
         
         evolve(local_matrix, next_gen, local_M+2, local_N+2);     //Se evoluciona con los datos recibidos
 
@@ -546,8 +474,8 @@ void game(int width, int height, char *fileArg)
 
         //Código original adaptado a los datos locales
         unsigned char **temp = local_matrix;
-        local_matrix = next_gen;
-        next_gen = temp;
+		local_matrix = next_gen;
+		next_gen = temp;
         
         generation++;
     }
