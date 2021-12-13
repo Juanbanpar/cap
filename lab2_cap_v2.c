@@ -187,21 +187,22 @@ void game(int width, int height, char *fileArg)
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
-    int dims[2] = {0, 0};
-    MPI_Dims_create(size, 2, dims);
-    int periods[2] = {1, 1}; /*Periodicity in both dimensions*/
+    int dims[2] = {0, 0};               //Dimensiones propuestas por MPI
+    MPI_Dims_create(size, 2, dims);     //Se hace el calculo de la división
+    int periods[2] = {1, 1};
     MPI_Comm COMM_2D;
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 0, &COMM_2D);
     
     int *horizontal = malloc(dims[0] * sizeof(int));
     int *vertical = malloc(dims[1] * sizeof(int));
 
-    int *disp_hor = malloc(dims[0] * sizeof(int));
-    int *disp_ver = malloc(dims[1] * sizeof(int));
+    int *disp_hor = malloc(dims[0] * sizeof(int));      //Displacement horiziontal en la matriz
+    int *disp_ver = malloc(dims[1] * sizeof(int));      //Displacement vertical en la matriz
     
-    int *nrows_proc; //Number of rows for the i-th process [local_nrow]
-    int *ncols_proc; //Number of columns for the i-th process [local_ncol]
+    int *nrows_proc;                                    //Número de filas para cada proceso
+    int *ncols_proc;                                    //Número de columnas para cada proceso
     
+    //Calcular la asignación de filas y columnas a cada proceso
     if(rank == 0) {
         nrows_proc = (int *) malloc(size * sizeof(int));
         ncols_proc = (int *) malloc(size * sizeof(int));
@@ -222,21 +223,8 @@ void game(int width, int height, char *fileArg)
         }
     }
     
-    //Eje X
-    int hor_proc = (int)width/dims[0];
-    for(int i = 0; i < dims[0]; i++) {
-        horizontal[i] = hor_proc;
-    }
-    for(int i = 0; i < width%dims[0]; i++) {
-        horizontal[i]++;
-    }
-    disp_hor[0] = 0;
-    for(int i = 1; i < dims[0]; i++) {
-        disp_hor[i] = disp_hor[i-1] + horizontal[i-1];
-    }
-    
-    //Eje Y
-    int ver_proc = (int)height/dims[1];
+    //Filas y displacement vertical para el envío
+    int ver_proc = height/dims[1];
     for(int i = 0; i < dims[1]; i++) {
         vertical[i] = ver_proc;
     }
@@ -246,6 +234,19 @@ void game(int width, int height, char *fileArg)
     disp_ver[0] = 0;
     for(int i = 1; i < dims[1]; i++) {
         disp_ver[i] = disp_ver[i-1] + vertical[i-1];
+    }
+    
+    //Columnas y displacement horizontal para el envío
+    int hor_proc = width/dims[0];
+    for(int i = 0; i < dims[0]; i++) {
+        horizontal[i] = hor_proc;
+    }
+    for(int i = 0; i < width%dims[0]; i++) {
+        horizontal[i]++;
+    }
+    disp_hor[0] = 0;
+    for(int i = 1; i < dims[0]; i++) {
+        disp_hor[i] = disp_hor[i-1] + horizontal[i-1];
     }
     
     /*
@@ -318,10 +319,10 @@ void game(int width, int height, char *fileArg)
         printf("File reading time:\t%.2f msecs\n", msecs);
     }
     
-    //Escribir la matriz
-    int BUFF_SIZE = horizontal[0] * vertical[0];
+    //Se envía cada submatriz a cada proceso
     unsigned char *univ_send;
-    int pos, x, y;
+    int BUFF_SIZE = horizontal[0] * vertical[0];
+    int pos, off_x, off_y;
     
     if(rank == 0) {
         for(int i = 0; i < dims[1]; i++) {
@@ -331,10 +332,10 @@ void game(int width, int height, char *fileArg)
                 for(int k = 0; k < vertical[i]; k++) {
                     for(int m = 0; m < horizontal[j]; m++) {
                         pos = k * horizontal[j] + m;
-                        x = disp_hor[j] + m;
-                        y = disp_ver[i] * width + width * k;
+                        off_x = disp_hor[j] + m;
+                        off_y = disp_ver[i] * width + width * k;
                         
-                        univ_send[pos] = univ_aplanado[x+y];
+                        univ_send[pos] = univ_aplanado[off_x+off_y];
                     }
                 }
                 
@@ -385,6 +386,7 @@ void game(int width, int height, char *fileArg)
     }
     */
     
+    //Como la matriz recibida está aplanada debemos recuperar su bidimensionalidad
     //unsigned char** local_univ = allocate_memory(local_nrow+2, local_ncol+2);
     unsigned char **local_univ = malloc(local_nrow+2 * sizeof(unsigned char *));
     for (int i = 0; i < local_nrow+2; i++)
@@ -451,6 +453,7 @@ void game(int width, int height, char *fileArg)
     }
     */
     
+    //En esta matriz se guardarán los resultados para la siguiente iteración
     //unsigned char **local_new_univ = allocate_memory(local_nrow+2, local_ncol+2);
     unsigned char **local_new_univ = malloc(local_nrow+2 * sizeof(unsigned char *));
     for (int i = 0; i < local_nrow+2; i++)
@@ -460,14 +463,14 @@ void game(int width, int height, char *fileArg)
             perror_exit("malloc: ");
     }
 
-    //Create 4 datatypes for sending
+    //Se crean los 4 tipos de datos a enviar...
     MPI_Datatype left_column_send, up_row_send, right_column_send, down_row_send;
     create_mpi_datatype(&left_column_send, 1, 1, local_nrow, 1, local_nrow, local_ncol);
     create_mpi_datatype(&up_row_send, 1, 1, 1, local_ncol, local_nrow, local_ncol);
     create_mpi_datatype(&right_column_send, 1, local_ncol, local_nrow, 1, local_nrow, local_ncol);
     create_mpi_datatype(&down_row_send, local_nrow, 1, 1, local_ncol, local_nrow, local_ncol);
 
-    //Create 4 datatypes for receiving
+    //... y los 4 tipos de datos a recibir
     MPI_Datatype left_column_recv, up_row_recv, right_column_recv, down_row_recv;
     create_mpi_datatype(&left_column_recv, 1, 0, local_nrow, 1, local_nrow, local_ncol);
     create_mpi_datatype(&up_row_recv, 0, 1, 1, local_ncol, local_nrow, local_ncol);
@@ -480,13 +483,13 @@ void game(int width, int height, char *fileArg)
     int neigh_coords[2];
     int corners[2];
     
-    //Finding top/bottom neighbours
+    //Vecinos de arriba y de abajo
     MPI_Cart_shift(COMM_2D, 0, 1, &up_neigh, &down_neigh);
 
-    //Finding left/right neighbours
+    //Vecinos de la izquierda y la derecha
     MPI_Cart_shift(COMM_2D, 1, 1, &left_neigh, &right_neigh);
 
-    //Finding top-left corner
+    //Esquina de arriba a la izquierda
     MPI_Cart_coords(COMM_2D, rank, 2, neigh_coords);
     corners[0] = neigh_coords[0] - 1;
     corners[1] = neigh_coords[1] - 1;
@@ -496,7 +499,7 @@ void game(int width, int height, char *fileArg)
         corners[1] = dims[1] - 1;
     MPI_Cart_rank(COMM_2D, corners, &up_left_neigh);
     
-    //Finding top-right corner
+    //Esquina de arriba a la derecha
     MPI_Cart_coords(COMM_2D, rank, 2, neigh_coords);
     corners[0] = neigh_coords[0] - 1;
     corners[1] = (neigh_coords[1]+1) % dims[1] ;
@@ -504,7 +507,7 @@ void game(int width, int height, char *fileArg)
         corners[0] = dims[0] - 1;
     MPI_Cart_rank(COMM_2D, corners, &up_right_neigh);
 
-    //Finding bottom-left corner
+    //Esquina de abajo a la izquierda
     MPI_Cart_coords(COMM_2D, rank, 2, neigh_coords);
     corners[0] = (neigh_coords[0]+1) % dims[0];
     corners[1] = neigh_coords[1] - 1;
@@ -512,7 +515,7 @@ void game(int width, int height, char *fileArg)
         corners[1] = dims[1] - 1;
     MPI_Cart_rank(COMM_2D, corners, &down_left_neigh);
     
-    //Finding bottom-right corner
+    //Esquina de abajo a la derecha
     MPI_Cart_coords(COMM_2D, rank, 2, neigh_coords);
     corners[0] = (neigh_coords[0]+1) % dims[0];
     corners[1] = (neigh_coords[1]+1) % dims[1];
@@ -528,9 +531,9 @@ void game(int width, int height, char *fileArg)
     MPI_Barrier(MPI_COMM_WORLD);                                        //Sincronizamos antes de comenzar a contar
     local_tstart = MPI_Wtime();                                         //Comienza el timer de MPI
 
-    //LAS DIAGONALES
     while ((!empty(local_univ, local_ncol+2, local_nrow+2)) && (generation <= GEN_LIMIT))
     {
+        //Se envían los datos necesarios a los vecinos
         MPI_Send(&(local_univ[0][0]), 1, left_column_send, left_neigh, 1, COMM_2D);
         MPI_Send(&(local_univ[0][0]), 1, up_row_send, up_neigh, 1, COMM_2D);
         MPI_Send(&(local_univ[0][0]), 1, right_column_send, right_neigh, 1, COMM_2D);
@@ -540,6 +543,7 @@ void game(int width, int height, char *fileArg)
         MPI_Send(&(local_univ[local_nrow][local_ncol]), 1, MPI_UNSIGNED_CHAR, down_right_neigh, 1, COMM_2D);
         MPI_Send(&(local_univ[local_nrow][1]), 1, MPI_UNSIGNED_CHAR, down_left_neigh, 1, COMM_2D);
 
+        //Se reciben los datos necesarios de los vecinos
         MPI_Recv(&(local_univ[0][0]), 1, left_column_recv, left_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[0][0]), 1, up_row_recv, up_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[0][0]), 1, right_column_recv, right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
@@ -569,6 +573,11 @@ void game(int width, int height, char *fileArg)
         
         generation++;
     }
+    
+    /*
+     * Finalizado el bucle se procede a recuperar los datos calculados,
+     * reestructurarlos en una matriz y escribirlos a fichero.
+     */
     
     printf("\n");
     if(rank == 0) {
