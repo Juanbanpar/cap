@@ -3,7 +3,7 @@
 
 #define _DEFAULT_SOURCE
 
-#define GEN_LIMIT 0
+#define GEN_LIMIT 1
 
 #define CHECK_SIMILARITY
 #define SIMILARITY_FREQUENCY 3
@@ -20,10 +20,9 @@
 #include <omp.h>
 #include <mpi.h>
 
-char** local_matrix;
+unsigned char** local_matrix;
 int local_N;
 int local_M;
-int thread_count;
 
 //Función inalterada
 void perror_exit(const char *message)
@@ -166,37 +165,74 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
     return false;
 }
 
-void print_local_matrix(void)
-{
-
-	int i,j;
-	for(i=1;i<=local_N;++i)
-	{
-		for(j=1;j<=local_M;++j)
-			printf("%c",local_matrix[i][j]);
-		printf("\n");
-    }
-}
-
 unsigned char** allocate_memory(int rows,int columns)
 {
-	int i;
-	unsigned char *data = malloc(rows*columns*sizeof(unsigned char));
+    int i;
+    unsigned char *data = malloc(rows*columns*sizeof(unsigned char));
     unsigned char** arr = malloc(rows*sizeof(unsigned char *));
     for (i=0; i<rows; i++)
         arr[i] = &(data[i*columns]);
 
-	return arr;
+    return arr;
 }
 
 void create_datatype(MPI_Datatype* derivedtype,int start1,int start2,int subsize1,int subsize2)
 {
-	const int array_of_bigsizes[2] = {local_N+2,local_M+2};
-	const int array_of_subsizes[2] = {subsize1,subsize2};
-	const int array_of_starts[2] = {start1,start2};
+    const int array_of_bigsizes[2] = {local_N+2,local_M+2};
+    const int array_of_subsizes[2] = {subsize1,subsize2};
+    const int array_of_starts[2] = {start1,start2};
 
-	MPI_Type_create_subarray(2,array_of_bigsizes,array_of_subsizes,array_of_starts,MPI_ORDER_C, MPI_UNSIGNED_CHAR,derivedtype);
-	MPI_Type_commit(derivedtype);
+    MPI_Type_create_subarray(2,array_of_bigsizes,array_of_subsizes,array_of_starts,MPI_ORDER_C, MPI_UNSIGNED_CHAR,derivedtype);
+    MPI_Type_commit(derivedtype);
+}
+
+void find_neighbours(MPI_Comm comm_2D,int my_rank,int NPROWS,int NPCOLS,int* left,int* right,int* top,int* bottom,int* topleft,int* topright,int* bottomleft,int* bottomright)
+{
+
+    int source,dest,disp=1;
+    int my_coords[2];
+    int corner_coords[2];
+    int corner_rank;
+
+
+    /*Finding top/bottom neighbours*/
+    MPI_Cart_shift(comm_2D,0,disp,top,bottom);
+
+    /*Finding left/right neighbours*/
+    MPI_Cart_shift(comm_2D,1,disp,left,right);
+
+    /*Finding top-right corner*/
+    MPI_Cart_coords(comm_2D,my_rank,2,my_coords);
+    corner_coords[0] = my_coords[0] -1;
+    corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
+    if(corner_coords[0] < 0)
+        corner_coords[0] = NPROWS -1;
+    MPI_Cart_rank(comm_2D,corner_coords,topright);
+
+    /*Finding top-left corner*/
+    MPI_Cart_coords(comm_2D,my_rank,2,my_coords);
+    corner_coords[0] = my_coords[0] - 1;
+    corner_coords[1] = my_coords[1] - 1 ;
+    if(corner_coords[0]<0)
+        corner_coords[0] = NPROWS -1;
+    if (corner_coords[1]<0)
+        corner_coords[1] = NPCOLS -1;
+    MPI_Cart_rank(comm_2D,corner_coords,topleft);
+
+    /*Finding bottom-right corner*/
+    MPI_Cart_coords(comm_2D,my_rank,2,my_coords);
+    corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
+    corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
+    MPI_Cart_rank(comm_2D,corner_coords,bottomright);
+
+    /*Finding bottom-left corner*/
+    MPI_Cart_coords(comm_2D,my_rank,2,my_coords);
+    corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
+    corner_coords[1] = my_coords[1] - 1 ;
+    if (corner_coords[1]<0)
+        corner_coords[1] = NPCOLS -1;
+    MPI_Cart_rank(comm_2D,corner_coords,bottomleft);
+
 }
 
 void game(int width, int height, char *fileArg)
@@ -376,6 +412,7 @@ void game(int width, int height, char *fileArg)
     
     MPI_Barrier(MPI_COMM_WORLD);
     
+    /*
     if(rank == 0) {
         printf("\n%d\t%d\n\n", local_N, local_M);
         for(int i=0;i<local_N*local_M;++i)
@@ -411,8 +448,9 @@ void game(int width, int height, char *fileArg)
             printf("\n");
         }
     }
+    */
     
-    unsigned char **local_matrix = allocate_memory(local_N+2,local_M+2);
+    local_matrix = allocate_memory(local_N+2,local_M+2);
     if (local_matrix == NULL)
         perror_exit("malloc: ");
     
@@ -428,7 +466,7 @@ void game(int width, int height, char *fileArg)
         }
     }
     
-
+    /*
     printf("\n");
     if(rank == 0) {
         for(int i = 0; i < local_N+2; i++) {
@@ -468,6 +506,7 @@ void game(int width, int height, char *fileArg)
             printf("\n");
         }
     }
+    */
     
     unsigned char **next_gen = allocate_memory(local_N+2,local_M+2);
 
@@ -484,53 +523,9 @@ void game(int width, int height, char *fileArg)
     create_datatype(&firstrow_recv,0,1,1,local_M);
     create_datatype(&lastcolumn_recv,1,local_M+1,local_N,1);
     create_datatype(&lastrow_recv,local_N+1,1,1,local_M);
-
-    //Find ranks of my 8 neighbours
-    int left,right,bottom,top,topleft,topright,bottomleft,bottomright;
-    int source,dest,disp=1;
-    //int my_coords[2];
-    int corner_coords[2];
-    int corner_rank;
-
-    printf("HASTA AQUÍ\n");
     
-    //Finding top/bottom neighbours
-    MPI_Cart_shift(comm_2D,0,disp,top,bottom);
-
-    //Finding left/right neighbours
-    MPI_Cart_shift(comm_2D,1,disp,left,right);
-
-    //Finding top-right corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = my_coords[0] -1;
-    corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
-    if(corner_coords[0] < 0)
-        corner_coords[0] = NPROWS -1;
-    MPI_Cart_rank(comm_2D,corner_coords,topright);
-
-    //Finding top-left corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = my_coords[0] - 1;
-    corner_coords[1] = my_coords[1] - 1 ;
-    if(corner_coords[0]<0)
-        corner_coords[0] = NPROWS -1;
-    if (corner_coords[1]<0)
-        corner_coords[1] = NPCOLS -1;
-    MPI_Cart_rank(comm_2D,corner_coords,topleft);
-
-    //Finding bottom-right corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
-    corner_coords[1] = (my_coords[1] + 1) % NPCOLS ;
-    MPI_Cart_rank(comm_2D,corner_coords,bottomright);
-
-    //Finding bottom-left corner
-    MPI_Cart_coords(comm_2D,rank,2,my_coords);
-    corner_coords[0] = (my_coords[0] + 1) % NPROWS ;
-    corner_coords[1] = my_coords[1] - 1 ;
-    if (corner_coords[1]<0)
-        corner_coords[1] = NPCOLS -1;
-    MPI_Cart_rank(comm_2D,corner_coords,bottomleft);
+    int left,right,bottom,top,topleft,topright,bottomleft,bottomright;
+    find_neighbours(comm_2D,rank,NPROWS,NPCOLS,&left,&right,&top,&bottom,&topleft,&topright,&bottomleft,&bottomright);
     
     //16 requests , 16 statuses
     MPI_Request array_of_requests[16];
@@ -568,15 +563,6 @@ void game(int width, int height, char *fileArg)
         MPI_Recv_init(&(local_matrix[local_N+1][local_M+1]),1,MPI_UNSIGNED_CHAR,		bottomright,	1,comm_2D,&array_of_requests[14]);
         MPI_Recv_init(&(local_matrix[local_N+1][0]),1,		MPI_UNSIGNED_CHAR,		bottomleft,		1,comm_2D,&array_of_requests[15]);
         
-        if(rank==0)
-        {
-            printf("Generation:%d\n",generation+1);
-            for(i=0;i<local_M;++i)
-                putchar('~');
-            putchar('\n');
-            print_local_matrix();
-        }
-        
         //Start all requests [8 sends + 8 receives]
         MPI_Startall(16,array_of_requests);
         //Make sure all requests are completed
@@ -601,6 +587,46 @@ void game(int width, int height, char *fileArg)
         next_gen = temp;
         
         generation++;
+    }
+    
+    printf("\n");
+    if(rank == 0) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    printf("\n");
+    if(rank == 1) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    printf("\n");
+    if(rank == 2) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    printf("\n");
+    if(rank == 3) {
+        for(int i = 0; i < local_N+2; i++) {
+            for(int j = 0; j < local_M+2; j++) {
+                printf("%c",local_matrix[i][j]);
+            }
+            printf("\n");
+        }
     }
     
     /*
