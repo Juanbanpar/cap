@@ -287,3 +287,19 @@ Finished.
 
 Generations:    1000
 Execution time: 8029.96 msecs
+
+
+/*
+*
+*   Comm times
+*
+*/
+
+[xan@notahackertrustme cap]$ mpirun -np 6 game1 1200 1200 tablero5000
+File reading time:      27.15 msecs
+Comunication time:      29.63 msecs
+Finished.
+
+Generations:    1
+Execution time: 408.32 msecs
+

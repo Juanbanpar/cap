@@ -3,7 +3,7 @@
 
 #define _DEFAULT_SOURCE
 
-#define GEN_LIMIT 1
+#define GEN_LIMIT 1000
 
 #define CHECK_SIMILARITY
 #define SIMILARITY_FREQUENCY 3
@@ -161,6 +161,7 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
     return false;
 }
 
+//Función auxiliar para crear los datatypes
 void create_mpi_datatype(MPI_Datatype* data_type, int start_n, int start_m, int subsize_n, int subsize_m, int local_nrow, int local_ncol)
 {
     int sizes[2] = {local_nrow+2, local_ncol+2};
@@ -179,8 +180,10 @@ void game(int width, int height, char *fileArg)
     
     int dims[2] = {0, 0};               //Dimensiones propuestas por MPI
     MPI_Dims_create(size, 2, dims);     //Se hace el calculo de la división
-    int periods[2] = {1, 1};
+    
+    //Se crea un comunicador con la topología definida
     MPI_Comm COMM_2D;
+    int periods[2] = {1, 1};
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 0, &COMM_2D);
     
     int *horizontal = malloc(dims[0] * sizeof(int));
@@ -309,72 +312,38 @@ void game(int width, int height, char *fileArg)
         printf("File reading time:\t%.2f msecs\n", msecs);
     }
     
-    //Se envía cada submatriz a cada proceso
-    unsigned char *univ_send;
-    int BUFF_SIZE = horizontal[0] * vertical[0];
-    int pos, off_x, off_y;
+    /*
+     * 
+     * Para mandar el los bloques al universo leido crea una matriz aplanada
+     * con el tamaño de los bloques que se usa para enviar desde el proceso
+     * principal a los demás sus respectivos elementos.
+     * 
+     */
     
     if(rank == 0) {
         for(int i = 0; i < dims[1]; i++) {
             for(int j = 0; j < dims[0]; j++) {
-                univ_send = malloc(BUFF_SIZE * sizeof(unsigned char *));
+                unsigned char *univ_send = malloc(horizontal[0] * vertical[0] * sizeof(unsigned char *));
                 
                 for(int k = 0; k < vertical[i]; k++) {
                     for(int m = 0; m < horizontal[j]; m++) {
-                        pos = k * horizontal[j] + m;
-                        off_x = disp_hor[j] + m;
-                        off_y = disp_ver[i] * width + width * k;
+                        int pos = k * horizontal[j] + m;
+                        int off_col = disp_hor[j] + m;
+                        int off_row = disp_ver[i] * width + width * k;
                         
-                        univ_send[pos] = univ_aplanado[off_x+off_y];
+                        univ_send[pos] = univ_aplanado[off_col+off_row];
                     }
                 }
                 
-                MPI_Send(univ_send, BUFF_SIZE, MPI_UNSIGNED_CHAR, i*dims[0]+j, 0, MPI_COMM_WORLD);
+                //Cada proceso del root los elementos que le tocan
+                MPI_Send(univ_send, horizontal[0] * vertical[0], MPI_UNSIGNED_CHAR, i*dims[0]+j, 0, MPI_COMM_WORLD);
                 free(univ_send);
             }
         }
     }
     
-    unsigned char *univ_recv = malloc(BUFF_SIZE * sizeof(unsigned char *));
-    MPI_Recv(univ_recv, BUFF_SIZE, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        
-    /*
-    if(rank == 0) {
-        printf("\n%d\t%d\n\n", local_nrow, local_ncol);
-        for(int i=0;i<local_nrow*local_ncol;++i)
-        {
-            printf("%c",univ_recv[i]);
-            printf("\n");
-        }
-    }
-    
-    if(rank == 1) {
-        printf("\n%d\t%d\n\n", local_nrow, local_ncol);
-        for(int i=0;i<local_nrow*local_ncol;++i)
-        {
-            printf("%c",univ_recv[i]);
-            printf("\n");
-        }
-    }
-    
-    if(rank == 2) {
-        printf("\n%d\t%d\n\n", local_nrow, local_ncol);
-        for(int i=0;i<local_nrow*local_ncol;++i)
-        {
-            printf("%c",univ_recv[i]);
-            printf("\n");
-        }
-    }
-    
-    if(rank == 3) {
-        printf("\n%d\t%d\n\n", local_nrow, local_ncol);
-        for(int i=0;i<local_nrow*local_ncol;++i)
-        {
-            printf("%c",univ_recv[i]);
-            printf("\n");
-        }
-    }
-    */
+    unsigned char *univ_recv = malloc(horizontal[0] * vertical[0] * sizeof(unsigned char *));
+    MPI_Recv(univ_recv, horizontal[0] * vertical[0], MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     
     //Como la matriz recibida está aplanada debemos recuperar su bidimensionalidad
     unsigned char **local_univ = malloc(local_nrow+2 * sizeof(unsigned char *));
@@ -384,63 +353,11 @@ void game(int width, int height, char *fileArg)
         if (local_univ[i] == NULL)
             perror_exit("malloc: ");
     }
-    
-    
-    /*
-    for(int i = 0; i < local_nrow+2; i++) {
-        for(int j = 0; j < local_ncol+2; j++) {
-            local_univ[i][j] = '2';
-        }
-    }
-    */
-    
     for(int i = 0; i < local_nrow; i++) {
         for(int j = 0; j < local_ncol; j++) {
             local_univ[i+1][j+1] = univ_recv[j+i*local_ncol];
         }
     }
-    
-    /*
-    printf("\n");
-    if(rank == 0) {
-        for(int i = 0; i < local_nrow+2; i++) {
-            for(int j = 0; j < local_ncol+2; j++) {
-                printf("%c",local_univ[i][j]);
-            }
-            printf("\n");
-        }
-    }
-    
-    printf("\n");
-    if(rank == 1) {
-        for(int i = 0; i < local_nrow+2; i++) {
-            for(int j = 0; j < local_ncol+2; j++) {
-                printf("%c",local_univ[i][j]);
-            }
-            printf("\n");
-        }
-    }
-    
-    printf("\n");
-    if(rank == 2) {
-        for(int i = 0; i < local_nrow+2; i++) {
-            for(int j = 0; j < local_ncol+2; j++) {
-                printf("%c",local_univ[i][j]);
-            }
-            printf("\n");
-        }
-    }
-    
-    printf("\n");
-    if(rank == 3) {
-        for(int i = 0; i < local_nrow+2; i++) {
-            for(int j = 0; j < local_ncol+2; j++) {
-                printf("%c",local_univ[i][j]);
-            }
-            printf("\n");
-        }
-    }
-    */
     
     //En esta matriz se guardarán los resultados para la siguiente iteración
     unsigned char **local_new_univ = malloc(local_nrow+2 * sizeof(unsigned char *));
@@ -451,6 +368,28 @@ void game(int width, int height, char *fileArg)
             perror_exit("malloc: ");
     }
 
+    /*
+     * 
+     * Para recibir y enviar los vecinos se crean datatypes de MPI
+     * con las dimensiones de cada uno de los vecinos definidos:
+     * 
+     * - La columna de la izquierda tiene la misma altura la
+     * submatriz que el proceso que la recibe y 1 de anchura.
+     * 
+     * - La fila de arriba tiene la misma anchura que la submatriz
+     * que la recibe y 1 de altura.
+     * 
+     * - La columna de la derecha tiene la misma altura la
+     * submatriz que el proceso que la recibe y 1 de anchura.
+     * 
+     * - La fila de abajo tiene la misma anchura que la submatriz
+     * que la recibe y 1 de altura.
+     * 
+     * - Para recibir las esquinas no es necesario crear un datatype
+     * pues al ser solo un elemento vale con MPI_UNSIGNED_CHAR
+     * 
+     */
+    
     //Se crean los 4 tipos de datos a enviar...
     MPI_Datatype left_column_send, up_row_send, right_column_send, down_row_send;
     create_mpi_datatype(&left_column_send, 1, 1, local_nrow, 1, local_nrow, local_ncol);
@@ -470,6 +409,16 @@ void game(int width, int height, char *fileArg)
     int up_left_neigh, up_right_neigh, down_left_neigh, down_right_neigh;   //Esquinas
     int neigh_coords[2];
     int corners[2];
+    
+    /*
+     * 
+     * Empleando las funciones proporcionadas por MPI se
+     * calculamos los vecinos de cada proceso.
+     * 
+     * Para las columnas y filas se emplea MPI_Cart_shift
+     * y para las esquinas es necesario trabajar con coordenadas
+     * 
+     */
     
     //Vecinos de arriba y de abajo
     MPI_Cart_shift(COMM_2D, 0, 1, &up_neigh, &down_neigh);
@@ -521,6 +470,10 @@ void game(int width, int height, char *fileArg)
 
     while ((!empty(local_univ, local_ncol+2, local_nrow+2)) && (generation <= GEN_LIMIT))
     {
+        //Para medir tiempos de comunicacion en cada iteración
+        //double local_comstart, local_comfinish, local_ComTime, result_tcom;
+        //local_comstart = MPI_Wtime();
+        
         //Se envían los datos necesarios a los vecinos
         MPI_Send(&(local_univ[0][0]), 1, left_column_send, left_neigh, 1, COMM_2D);
         MPI_Send(&(local_univ[0][0]), 1, up_row_send, up_neigh, 1, COMM_2D);
@@ -540,6 +493,21 @@ void game(int width, int height, char *fileArg)
         MPI_Recv(&(local_univ[0][local_ncol+1]), 1, MPI_UNSIGNED_CHAR, up_right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[local_nrow+1][local_ncol+1]), 1, MPI_UNSIGNED_CHAR, down_right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[local_nrow+1][0]), 1, MPI_UNSIGNED_CHAR, down_left_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
+        
+        MPI_Barrier(MPI_COMM_WORLD);
+        
+        /*
+        local_comfinish = MPI_Wtime();
+        local_ComTime = local_comfinish - local_comstart;
+    
+        //Se elige el tiempo máximo de todos los proceso ejecutados
+        MPI_Reduce(&local_ComTime, &result_tcom, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        double result_comtime_msecs = result_tcom * 1000.0f;
+        
+        if(rank == 0) {
+            printf("Comunication time:\t%.2f msecs\n", result_comtime_msecs);
+        }
+        */
         
         evolve(local_univ, local_new_univ, local_ncol+2, local_nrow+2);     //Se evoluciona con los datos recibidos
 
@@ -562,6 +530,7 @@ void game(int width, int height, char *fileArg)
         generation++;
     }
     
+    /*
     printf("\n");
     if(rank == 0) {
         for(int i = 0; i < local_nrow+2; i++) {
@@ -571,42 +540,14 @@ void game(int width, int height, char *fileArg)
             printf("\n");
         }
     }
-    
-    printf("\n");
-    if(rank == 1) {
-        for(int i = 0; i < local_nrow+2; i++) {
-            for(int j = 0; j < local_ncol+2; j++) {
-                printf("%c",local_univ[i][j]);
-            }
-            printf("\n");
-        }
-    }
-    
-    printf("\n");
-    if(rank == 2) {
-        for(int i = 0; i < local_nrow+2; i++) {
-            for(int j = 0; j < local_ncol+2; j++) {
-                printf("%c",local_univ[i][j]);
-            }
-            printf("\n");
-        }
-    }
-    
-    printf("\n");
-    if(rank == 3) {
-        for(int i = 0; i < local_nrow+2; i++) {
-            for(int j = 0; j < local_ncol+2; j++) {
-                printf("%c",local_univ[i][j]);
-            }
-            printf("\n");
-        }
-    }
+    */
     
     /*
      * Finalizado el bucle se procede a recuperar los datos calculados,
      * reestructurarlos en una matriz y escribirlos a fichero.
      */
     
+    //A cada matriz local se le eliminan los bordes con los vecinos
     unsigned char **local_univ_send = malloc(local_nrow * sizeof(unsigned char *));
     for (int i = 0; i < local_nrow; i++)
     {
@@ -614,7 +555,6 @@ void game(int width, int height, char *fileArg)
         if (local_univ_send[i] == NULL)
             perror_exit("malloc: ");
     }
-    
     for(int i = 1; i < local_nrow+1; i++) {
         for(int j = 1; j < local_ncol+1; j++) {
             local_univ_send[i-1][j-1] = local_univ[i][j];
@@ -629,36 +569,40 @@ void game(int width, int height, char *fileArg)
         }
     }
     
-    //La tarea root crea una matriz donde recibir las de todos los procesos
+    //La tarea root crea una matriz aplanada donde recibir las de todos los procesos
     unsigned char *result_univ;
     if (rank == 0) {
         result_univ = malloc((height*width)*sizeof(unsigned char *));
     }
     
+    //Cada proceso envía al root su submatriz sin los vecinos
     MPI_Request request;
     MPI_Status status;
     MPI_Isend(local_result_univ, local_ncol*local_nrow, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, &request);
-    unsigned char *result_univ_buf;
     
+    //El proceso root recibe de cada proceso la submatriz
     if(rank == 0) {
         for(int proc = 0; proc < size; proc++) {
-            result_univ_buf = malloc((local_ncol*local_nrow)*sizeof(unsigned char *));
-            MPI_Recv(result_univ_buf, local_ncol*local_nrow, MPI_UNSIGNED_CHAR, proc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            unsigned char *result_univ_recv = malloc((ncols_proc[proc]*nrows_proc[proc])*sizeof(unsigned char *));
+            MPI_Recv(result_univ_recv, ncols_proc[proc]*nrows_proc[proc], MPI_UNSIGNED_CHAR, proc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             
-            for(int i = 0; i < local_nrow; i++) {
-                for(int j = 0; j < local_ncol; j++) {
+            //Se calculan los offsets para guardar en la matriz aplanada que se va a escribir a fichero
+            for(int i = 0; i < nrows_proc[proc]; i++) {
+                for(int j = 0; j < ncols_proc[proc]; j++) {
                     int local_disp_cols = disp_hor[proc%dims[0]];
                     int local_disp_rows = disp_ver[proc/dims[1]];
                     
-                    result_univ[local_disp_rows*width+(local_disp_cols+j)+i*width] = result_univ_buf[i*local_ncol+j];
+                    result_univ[local_disp_rows*width+(local_disp_cols+j)+i*width] = result_univ_recv[i*ncols_proc[proc]+j];
                 }
             }
         }
     }
     
-    //Se sincronizan los procesos y se calcula el tiempo de ejecución para cada uno
+    //Se espera a que se hayan enviado los resultados
     MPI_Wait(&request, &status);
     MPI_Barrier(MPI_COMM_WORLD);
+    
+    //Se sincronizan los procesos y se calcula el tiempo de ejecución para cada uno
     local_tfinish = MPI_Wtime();
     local_TotalTime = local_tfinish - local_tstart;
     

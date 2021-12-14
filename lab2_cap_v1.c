@@ -313,6 +313,10 @@ void game(int width, int height, char *fileArg)
 
     while ((!empty(local_univ, width, local_nrow+2)) && (generation <= GEN_LIMIT))
     {
+        //Para medir tiempos de comunicacion en cada iteración
+        //double local_comstart, local_comfinish, local_ComTime, result_tcom;
+        //local_comstart = MPI_Wtime();
+        
         //Se envían las dos filas que requieren los vecinos
         MPI_Send(&(local_univ[1][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD);
         MPI_Send(&(local_univ[local_nrow][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD);
@@ -320,6 +324,21 @@ void game(int width, int height, char *fileArg)
         //Se reciben las filas requeridas de los vecinos
         MPI_Recv(&(local_univ[0][0]), width, MPI_UNSIGNED_CHAR, up_neigh, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[local_nrow+1][0]), width, MPI_UNSIGNED_CHAR, down_neigh, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        
+        MPI_Barrier(MPI_COMM_WORLD);
+        
+        /*
+        local_comfinish = MPI_Wtime();
+        local_ComTime = local_comfinish - local_comstart;
+    
+        //Se elige el tiempo máximo de todos los proceso ejecutados
+        MPI_Reduce(&local_ComTime, &result_tcom, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        double result_comtime_msecs = result_tcom * 1000.0f;
+        
+        if(rank == 0) {
+            printf("Comunication time:\t%.2f msecs\n", result_comtime_msecs);
+        }
+        */
         
         evolve(local_univ, local_new_univ, width, local_nrow+2);    //Se evoluciona con las filas recibidas
 
