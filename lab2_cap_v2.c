@@ -3,7 +3,7 @@
 
 #define _DEFAULT_SOURCE
 
-#define GEN_LIMIT 1
+#define GEN_LIMIT 1000
 
 #define CHECK_SIMILARITY
 #define SIMILARITY_FREQUENCY 3
@@ -159,6 +159,18 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
         return true;
     }
     return false;
+}
+
+unsigned char** malloc_matrix(int n, int m)
+{
+    unsigned char *arr = malloc(n * m * sizeof(unsigned char));
+    unsigned char** matrix = malloc(n * sizeof(unsigned char *));
+    
+    for (int i = 0; i < n; i++) {
+        matrix[i] = &(arr[i*m]);
+    }
+
+    return matrix;
 }
 
 //Función auxiliar para crear los datatypes
@@ -340,12 +352,14 @@ void game(int width, int height, char *fileArg)
                 free(univ_send);
             }
         }
+        free(univ_aplanado);
     }
     
     unsigned char *univ_recv = malloc(horizontal[0] * vertical[0] * sizeof(unsigned char *));
     MPI_Recv(univ_recv, horizontal[0] * vertical[0], MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     
     //Como la matriz recibida está aplanada debemos recuperar su bidimensionalidad
+    /*
     unsigned char **local_univ = malloc(local_nrow+2 * sizeof(unsigned char *));
     for (int i = 0; i < local_nrow+2; i++)
     {
@@ -353,13 +367,17 @@ void game(int width, int height, char *fileArg)
         if (local_univ[i] == NULL)
             perror_exit("malloc: ");
     }
+    */
+    unsigned char **local_univ = malloc_matrix(local_nrow+2, local_nrow+2);
     for(int i = 0; i < local_nrow; i++) {
         for(int j = 0; j < local_ncol; j++) {
             local_univ[i+1][j+1] = univ_recv[j+i*local_ncol];
         }
     }
+    free(univ_recv);
     
     //En esta matriz se guardarán los resultados para la siguiente iteración
+    /*
     unsigned char **local_new_univ = malloc(local_nrow+2 * sizeof(unsigned char *));
     for (int i = 0; i < local_nrow+2; i++)
     {
@@ -367,7 +385,9 @@ void game(int width, int height, char *fileArg)
         if (local_new_univ[i] == NULL)
             perror_exit("malloc: ");
     }
-
+    */
+    unsigned char **local_new_univ = malloc_matrix(local_nrow+2, local_nrow+2);
+    
     /*
      * 
      * Para recibir y enviar los vecinos se crean datatypes de MPI
@@ -548,6 +568,7 @@ void game(int width, int height, char *fileArg)
      */
     
     //A cada matriz local se le eliminan los bordes con los vecinos
+    /*
     unsigned char **local_univ_send = malloc(local_nrow * sizeof(unsigned char *));
     for (int i = 0; i < local_nrow; i++)
     {
@@ -555,6 +576,8 @@ void game(int width, int height, char *fileArg)
         if (local_univ_send[i] == NULL)
             perror_exit("malloc: ");
     }
+    */
+    unsigned char **local_univ_send = malloc_matrix(local_nrow+2, local_ncol+2);
     for(int i = 1; i < local_nrow+1; i++) {
         for(int j = 1; j < local_ncol+1; j++) {
             local_univ_send[i-1][j-1] = local_univ[i][j];
@@ -568,6 +591,7 @@ void game(int width, int height, char *fileArg)
             local_result_univ[i*local_ncol+j] = local_univ_send[i][j];
         }
     }
+    free(local_univ_send);
     
     //La tarea root crea una matriz aplanada donde recibir las de todos los procesos
     unsigned char *result_univ;
@@ -579,6 +603,7 @@ void game(int width, int height, char *fileArg)
     MPI_Request request;
     MPI_Status status;
     MPI_Isend(local_result_univ, local_ncol*local_nrow, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, &request);
+    free(local_result_univ);
     
     //El proceso root recibe de cada proceso la submatriz
     if(rank == 0) {
