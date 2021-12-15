@@ -1,4 +1,5 @@
 // To compile: make game
+// export OMP_NUM_THREADS=2
 // To run: ./a.out [width] [height] [input_file]
 
 #define _DEFAULT_SOURCE
@@ -69,6 +70,7 @@ void evolve(unsigned char **univ, unsigned char **new_univ, int width, int heigh
 {
     // Generate new generation: keep it in new_univ
     #pragma omp parallel for schedule(dynamic)
+    #pragma loop(hint_parallel(#pragma loop(hint_parallel())
     for (int y = 0; y < height; y++)
     {
         for (int x = 0; x < width; x++)
@@ -115,6 +117,7 @@ int empty(unsigned char **univ, int width, int height)
     // Checks if local is empty or not (a.k a. all the cells are dead)    
     int check = 0;
     #pragma omp parallel for shared(check, univ) schedule(dynamic)
+    #pragma loop(hint_parallel(#pragma loop(hint_parallel())
     for (int y = 1; y < height-1; y++)  //No necesitamos verificar el exterior de la matriz pues es para los vecinos
     {
         for (int x = 1; x < width-1; x++)
@@ -141,6 +144,7 @@ int similarity(unsigned char **univ, unsigned char **new_univ, int width, int he
     // Check if the new generation is the same with the previous generation
     int check = 0;
     #pragma omp parallel for shared(check, univ, new_univ) schedule(dynamic)
+    #pragma loop(hint_parallel(#pragma loop(hint_parallel())
     for (int y = 1; y < height-1; y++)  //No necesitamos verificar el exterior de la matriz pues es para los vecinos
     {
         for (int x = 1; x < width-1; x++)
