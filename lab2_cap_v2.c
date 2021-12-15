@@ -373,6 +373,13 @@ void game(int width, int height, char *fileArg)
     }
     */
     unsigned char **local_univ = malloc_matrix(local_nrow+2, local_nrow+2);
+    
+    for(int i = 0; i < local_nrow+2; i++) {
+        for(int j = 0; j < local_ncol+2; j++) {
+            local_univ[i][j] = 0;
+        }
+    }
+    
     for(int i = 0; i < local_nrow; i++) {
         for(int j = 0; j < local_ncol; j++) {
             local_univ[i+1][j+1] = univ_recv[j+i*local_ncol];
@@ -503,20 +510,20 @@ void game(int width, int height, char *fileArg)
         MPI_Send(&(local_univ[0][0]), 1, up_row_send, up_neigh, 1, COMM_2D);
         MPI_Send(&(local_univ[0][0]), 1, right_column_send, right_neigh, 1, COMM_2D);
         MPI_Send(&(local_univ[0][0]), 1, down_row_send, down_neigh, 1, COMM_2D);
-        MPI_Send(&(local_univ[1][1]), 1, MPI_UNSIGNED_CHAR, up_left_neigh, 1, COMM_2D);
-        MPI_Send(&(local_univ[1][local_ncol]), 1, MPI_UNSIGNED_CHAR, up_right_neigh, 1, COMM_2D);
-        MPI_Send(&(local_univ[local_nrow][local_ncol]), 1, MPI_UNSIGNED_CHAR, down_right_neigh, 1, COMM_2D);
-        MPI_Send(&(local_univ[local_nrow][1]), 1, MPI_UNSIGNED_CHAR, down_left_neigh, 1, COMM_2D);
+//         MPI_Send(&(local_univ[1][1]), 1, MPI_UNSIGNED_CHAR, up_left_neigh, 1, COMM_2D);
+//         MPI_Send(&(local_univ[1][local_ncol]), 1, MPI_UNSIGNED_CHAR, up_right_neigh, 1, COMM_2D);
+//         MPI_Send(&(local_univ[local_nrow][local_ncol]), 1, MPI_UNSIGNED_CHAR, down_right_neigh, 1, COMM_2D);
+//         MPI_Send(&(local_univ[local_nrow][1]), 1, MPI_UNSIGNED_CHAR, down_left_neigh, 1, COMM_2D);
 
         //Se reciben los datos necesarios de los vecinos
         MPI_Recv(&(local_univ[0][0]), 1, left_column_recv, left_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[0][0]), 1, up_row_recv, up_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[0][0]), 1, right_column_recv, right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         MPI_Recv(&(local_univ[0][0]), 1, down_row_recv, down_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
-        MPI_Recv(&(local_univ[0][0]), 1, MPI_UNSIGNED_CHAR, up_left_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
-        MPI_Recv(&(local_univ[0][local_ncol+1]), 1, MPI_UNSIGNED_CHAR, up_right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
-        MPI_Recv(&(local_univ[local_nrow+1][local_ncol+1]), 1, MPI_UNSIGNED_CHAR, down_right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
-        MPI_Recv(&(local_univ[local_nrow+1][0]), 1, MPI_UNSIGNED_CHAR, down_left_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
+//         MPI_Recv(&(local_univ[0][0]), 1, MPI_UNSIGNED_CHAR, up_left_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
+//         MPI_Recv(&(local_univ[0][local_ncol+1]), 1, MPI_UNSIGNED_CHAR, up_right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
+//         MPI_Recv(&(local_univ[local_nrow+1][local_ncol+1]), 1, MPI_UNSIGNED_CHAR, down_right_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
+//         MPI_Recv(&(local_univ[local_nrow+1][0]), 1, MPI_UNSIGNED_CHAR, down_left_neigh, 1, COMM_2D, MPI_STATUS_IGNORE);
         
         MPI_Barrier(MPI_COMM_WORLD);
         

@@ -3,7 +3,7 @@
 
 #define _DEFAULT_SOURCE
 
-#define GEN_LIMIT 1
+#define GEN_LIMIT 1000
 
 #define CHECK_SIMILARITY
 #define SIMILARITY_FREQUENCY 3
